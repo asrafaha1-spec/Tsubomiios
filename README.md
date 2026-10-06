@@ -22,10 +22,13 @@ that you are complying with the laws in your jurisdiction.
 
 ## Requirements
 
-- An iPhone/iPad on a recent iOS version, with a way to sideload an unsigned `.ipa`.
+- An iPhone/iPad on **iOS 16.3 or later**, with a way to sideload an unsigned `.ipa`
+  (for example TrollStore on supported iOS 16 versions).
 - **JIT** must be enabled for games to run (Tsubomi shows a banner and refuses to boot
   games when JIT is unavailable). [StikDebug](https://github.com/StephenDev0/StikDebug)
   or a comparable JIT enabler works.
+  On iOS 16 with TrollStore 2.0.12+, TrollStore's own "enable JIT" works too (see
+  `ios/README.md`, *JIT on iOS 16*).
 - Your own **PS Vita firmware** and **game dumps**.
 
 ## Setup

@@ -2,6 +2,11 @@ name: Build upstream-core iOS IPA
 
 on:
   workflow_dispatch:
+    inputs:
+      publish_release:
+        description: "Also publish the IPA as a GitHub Release (never expires)"
+        type: boolean
+        default: true
   push:
     branches:
       - ios-upstream-core
@@ -35,6 +40,8 @@ jobs:
     name: Upstream core arm64 device link
     runs-on: macos-15
     timeout-minutes: 180
+    permissions:
+      contents: write
 
     steps:
       - name: Check out source and upstream dependencies
@@ -204,4 +211,17 @@ jobs:
           name: Vita3K-upstream-core-iOS-${{ github.sha }}-unsigned
           path: artifacts/Vita3K-upstream-core-iOS-unsigned.ipa
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 90
+
+      - name: Publish IPA as a GitHub Release
+        if: github.event_name == 'workflow_dispatch' && inputs.publish_release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="build-${GITHUB_REF_NAME//\//-}-${GITHUB_RUN_NUMBER}-${GITHUB_SHA::7}"
+          gh release create "$tag" \
+            "artifacts/Vita3K-upstream-core-iOS-unsigned.ipa" \
+            --target "$GITHUB_SHA" \
+            --prerelease \
+            --title "Unsigned IPA ${GITHUB_REF_NAME} @ ${GITHUB_SHA::7}" \
+            --notes "Unsigned iOS IPA built from ${GITHUB_REF_NAME} (${GITHUB_SHA}). Needs a way to sideload unsigned IPAs (e.g. TrollStore) and JIT enabled. Contains no games or firmware."

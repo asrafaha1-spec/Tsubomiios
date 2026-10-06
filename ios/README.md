@@ -431,7 +431,22 @@ The Actions artifact includes `milestone38-startup-services.zip`, whose legal sy
 
 ## Supported iOS versions
 
-The app deploys to **iOS 16.3 and later** (16.3 is the first iOS 16 release whose libc++ ships the complete `<charconv>`/`std::format` the core needs). It is still *built* with the iOS 26 SDK, because the Liquid Glass code is compiled in and selected at runtime.
+The app deploys to **iOS 16.3 and later**. It is still *built* with the iOS 26 SDK, because the Liquid Glass code is compiled in and selected at runtime. Verified on an iPhone 12 running iOS 16.3.1 (installed with TrollStore, JIT enabled): the app launches, firmware installs and a game boots.
+
+### iOS 16 system library gaps
+
+The system libc++ of iOS 16.3.x is older than the SDK headers the app is compiled against, so dyld refused to launch the app with `Symbol not found` errors. `ios/src/LibcxxCompat.cpp` defines the missing functions inside the app, so the linker binds every reference (including those from statically linked vcpkg dependencies) to them:
+
+- `std::__libcpp_verbose_abort`
+- the floating-point `std::to_chars` overloads (`float`, `double`, `long double`; plain, with `chars_format`, and with precision). They are built on `snprintf`: shortest form round-trips and format/precision are honoured, but output is not bit-exact with libc++ in every corner case.
+
+If a new dependency adds another import the iOS 16 libc++ lacks, the app will crash at launch with `Symbol not found: ... Expected in: /usr/lib/libc++.1.dylib`. The CI job prints (and uploads as the `libcxx-imports` artifact) every `std::__1` symbol the binary imports, which makes such symbols easy to spot.
+
+### JIT on iOS 16
+
+iOS 26 needs a debugger kept attached (the universal-JIT region pool). iOS 16-18 use the traditional model: once the process has `CS_DEBUGGED` (StikDebug, AltJIT, or TrollStore's "enable JIT"), plain RWX mappings work and no debugger has to stay attached. `UpstreamMain.cpp` therefore only requires `CS_DEBUGGED` below iOS 26 and skips the region pool prewarm there.
+
+With TrollStore 2.0.12 or later, JIT can be enabled without a computer: create an iOS Shortcut with one **Open URLs** action set to `apple-magnifier://enable-jit?bundle-id=org.vita3k.experimental.ios`, open Tsubomi, then run the shortcut and switch back to the app. The JIT banner clears within about a second.
 
 How the newer-OS UI is handled:
 
