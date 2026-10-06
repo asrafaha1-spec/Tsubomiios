@@ -180,6 +180,16 @@ jobs:
           xcrun nm -u -arch arm64 "$bin" | c++filt -_ | grep -E 'std::__1::' | sort -u | tee libcxx-imports.txt || true
           echo "Total std::__1 imports: $(wc -l < libcxx-imports.txt)"
 
+      - name: Upload libc++ import list
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: libcxx-imports
+          path: libcxx-imports.txt
+          if-no-files-found: ignore
+          retention-days: 14
+
       - name: Package and verify unsigned IPA
         run: |
           mkdir -p artifacts
