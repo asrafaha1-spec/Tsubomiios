@@ -75,7 +75,7 @@ struct GameMenuView: View {
         .presentationDragIndicator(.visible)
         // The game is still rendering behind this; a glass background keeps it
         // visible rather than hiding it behind an opaque sheet.
-        .presentationBackground(.regularMaterial)
+        .compatPresentationBackground(.regularMaterial)
     }
 
     private func row(

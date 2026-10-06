@@ -1,15 +1,13 @@
+import Combine
 import Foundation
-import Observation
 
 /// Editable state behind the settings screen.
 ///
-/// `@Observable` rather than `ObservableObject`: SwiftUI then tracks reads at
-/// the property level, so flipping one toggle re-evaluates only the rows that
-/// actually read that property instead of the whole form. That is the single
-/// biggest win available here for a screen made almost entirely of controls.
-@Observable
+/// An `ObservableObject` so it back-deploys to iOS 16, where the Observation
+/// framework does not exist. The screen is a single form, so whole-model
+/// invalidation on a change is cheap.
 @MainActor
-final class SettingsModel {
+final class SettingsModel: ObservableObject {
     /// What this screen is editing. Per-game hides the rows that are device
     /// properties rather than per-title preferences, and writes an override
     /// instead of committing to the global configuration.
@@ -23,21 +21,21 @@ final class SettingsModel {
 
     let scope: Scope
 
-    var resolutionMultiplier: Float
-    var vSync: Bool
-    var shaderCache: Bool
-    var cpuOptimizations: Bool
-    var ngsAudio: Bool
-    var asyncPipelineCompilation: Bool
-    var anisotropicFiltering: Int
-    var highAccuracy: Bool
-    var surfaceSync: Bool
-    var doubleBuffer: Bool
+    @Published var resolutionMultiplier: Float
+    @Published var vSync: Bool
+    @Published var shaderCache: Bool
+    @Published var cpuOptimizations: Bool
+    @Published var ngsAudio: Bool
+    @Published var asyncPipelineCompilation: Bool
+    @Published var anisotropicFiltering: Int
+    @Published var highAccuracy: Bool
+    @Published var surfaceSync: Bool
+    @Published var doubleBuffer: Bool
 
-    var bindCross: Int
-    var bindCircle: Int
-    var bindSquare: Int
-    var bindTriangle: Int
+    @Published var bindCross: Int
+    @Published var bindCircle: Int
+    @Published var bindSquare: Int
+    @Published var bindTriangle: Int
 
     let firmwareVersion: String
     let firmwareReady: Bool

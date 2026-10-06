@@ -9,8 +9,8 @@ import UIKit
 /// stored separately, so a rotation cannot leave the two disagreeing.
 @MainActor
 struct LibraryView: View {
-    @State private var library = LibraryState.shared
-    @State private var runtimeLatch = RuntimeLatch.shared
+    @ObservedObject private var library = LibraryState.shared
+    @ObservedObject private var runtimeLatch = RuntimeLatch.shared
     @Environment(\.verticalSizeClass) private var verticalSizeClass
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// Rename sheet target; nil when closed.
@@ -71,16 +71,16 @@ struct LibraryView: View {
                     // Keep the state's idea of the presentation in step with
                     // what is actually drawn, so pad D-pad movement matches
                     // what the user sees.
-                    .onChange(of: showsCarousel, initial: true) { _, _ in
+                    .compatOnChange(of: showsCarousel, initial: true) { _, _ in
                         syncFocusLayout()
                     }
-                    .onChange(of: library.isListMode) { _, _ in
+                    .compatOnChange(of: library.isListMode) { _, _ in
                         syncFocusLayout()
                     }
             }
         }
         // Cross on the focused game routes through the same gating as a tap.
-        .onChange(of: library.padLaunchTarget) { _, target in
+        .compatOnChange(of: library.padLaunchTarget) { _, target in
             guard let target else { return }
             library.padLaunchTarget = nil
             launch(target)
@@ -119,11 +119,11 @@ struct LibraryView: View {
     private var content: some View {
         if library.orderedGames.isEmpty {
             ScrollView {
-                ContentUnavailableView {
-                    Label("No Games", systemImage: "gamecontroller")
-                } description: {
-                    Text("Tap + to import a game")
-                }
+                CompatEmptyState(
+                    title: "No Games",
+                    systemImage: "gamecontroller",
+                    message: "Tap + to import a game"
+                )
                 .frame(maxWidth: .infinity, minHeight: 420)
             }
             .refreshable { await refresh() }
@@ -195,7 +195,7 @@ struct LibraryView: View {
             }
             .listStyle(.plain)
             .refreshable { await refresh() }
-            .onChange(of: library.focusedTitleID) { _, focused in
+            .compatOnChange(of: library.focusedTitleID) { _, focused in
                 scrollToFocused(focused, using: scroller)
             }
         }
@@ -243,17 +243,15 @@ struct LibraryView: View {
     private var gridContent: some View {
         ScrollViewReader { scroller in
             gridScroll
-                // onGeometryChange rather than wrapping in a GeometryReader:
-                // GeometryReader is greedy and ignores the safe area, which
-                // collapsed the large navigation title and pushed the first
-                // row up under the toolbar. This reads the same width without
-                // taking part in layout.
-                .onGeometryChange(for: CGFloat.self) { proxy in
-                    proxy.size.width
-                } action: { width in
+                // A background-measured width rather than wrapping in a
+                // GeometryReader: GeometryReader is greedy and ignores the
+                // safe area, which collapsed the large navigation title and
+                // pushed the first row up under the toolbar. This reads the
+                // same width without taking part in layout.
+                .compatOnWidthChange { width in
                     library.gridColumnCount = Self.columnCount(forWidth: width)
                 }
-                .onChange(of: library.focusedTitleID) { _, focused in
+                .compatOnChange(of: library.focusedTitleID) { _, focused in
                     scrollToFocused(focused, using: scroller)
                 }
         }
@@ -269,7 +267,7 @@ struct LibraryView: View {
         if reduceMotion {
             scroller.scrollTo(focused, anchor: .center)
         } else {
-            withAnimation(.snappy) { scroller.scrollTo(focused, anchor: .center) }
+            withAnimation(.compatSnappy()) { scroller.scrollTo(focused, anchor: .center) }
         }
     }
 
@@ -343,7 +341,7 @@ struct LibraryView: View {
                         .multilineTextAlignment(.center)
                 }
                 .padding(24)
-                .background(.regularMaterial, in: .rect(cornerRadius: 20, style: .continuous))
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
                 .padding(40)
             }
             .transition(.opacity)
@@ -528,7 +526,7 @@ private struct DeleteConfirmationDialog: ViewModifier {
 /// would make it unreachable.
 @MainActor
 private struct LibraryJITBanner: View {
-    var library: LibraryState
+    @ObservedObject var library: LibraryState
 
     var body: some View {
         Group {
@@ -545,12 +543,12 @@ private struct LibraryJITBanner: View {
                 // It is a standing condition, not an alert to be dismissed, so
                 // it should read as a small badge under the title instead of
                 // claiming a whole row of the library.
-                .glassEffect(.regular.tint(.yellow), in: .capsule)
+                .adaptiveGlass(in: Capsule(), tint: .yellow)
                 .frame(maxWidth: .infinity)
                 .padding(.bottom, 4)
             }
         }
-        .animation(.snappy, value: library.jitAvailable)
+        .animation(.compatSnappy(), value: library.jitAvailable)
     }
 }
 
@@ -558,7 +556,7 @@ private struct LibraryJITBanner: View {
 /// changes its layout when one arrives or times out.
 @MainActor
 private struct LibraryStatusToast: View {
-    var library: LibraryState
+    @ObservedObject var library: LibraryState
 
     var body: some View {
         Group {
@@ -567,12 +565,12 @@ private struct LibraryStatusToast: View {
                     .font(.subheadline)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 8)
-                    .glassEffect(.regular, in: .capsule)
+                    .adaptiveGlass(in: Capsule())
                     .padding(.top, 8)
                     .transition(.move(edge: .top).combined(with: .opacity))
                     .allowsHitTesting(false)
             }
         }
-        .animation(.snappy, value: library.statusMessage)
+        .animation(.compatSnappy(), value: library.statusMessage)
     }
 }

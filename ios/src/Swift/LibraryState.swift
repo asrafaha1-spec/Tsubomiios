@@ -1,24 +1,23 @@
+import Combine
 import Foundation
-import Observation
 
 /// Everything the library screen renders, pushed in by the core.
 ///
 /// The emulator thread owns the truth here; the UI never polls. Each core
 /// refresh replaces `games` wholesale, which is cheap because the entries are
 /// immutable value-ish objects and SwiftUI diffs them by title ID.
-@Observable
 @MainActor
-final class LibraryState {
+final class LibraryState: ObservableObject {
     static let shared = LibraryState()
 
-    private(set) var games: [GameEntry] = []
+    @Published private(set) var games: [GameEntry] = []
     /// Installed firmware version, shown in the header. Empty when none.
-    private(set) var firmwareVersion = ""
+    @Published private(set) var firmwareVersion = ""
     /// All three official packages are installed. Games cannot boot otherwise
     /// and are dimmed in the list.
-    private(set) var firmwareReady = false
+    @Published private(set) var firmwareReady = false
     /// A JIT-enabling debugger is attached. Games cannot boot without it.
-    private(set) var jitAvailable = true
+    @Published private(set) var jitAvailable = true
 
     /// Bumped whenever cached cover art may be stale.
     ///
@@ -27,20 +26,20 @@ final class LibraryState {
     /// empty. Nothing about the entry changes, so neither the cache nor the
     /// view's load task would re-run on their own - the cover stayed blank
     /// until the app restarted. Cells fold this into their task identity.
-    private(set) var artGeneration = 0
+    @Published private(set) var artGeneration = 0
     /// Manual refresh completion comes from the core after its rescan result is
     /// known. A failed scan can still publish the previous snapshot.
-    private(set) var refreshCompletionGeneration = 0
-    private(set) var lastRefreshSucceeded = false
+    @Published private(set) var refreshCompletionGeneration = 0
+    @Published private(set) var lastRefreshSucceeded = false
 
     /// Transient toast under the header, cleared automatically.
-    private(set) var statusMessage: String?
+    @Published private(set) var statusMessage: String?
     /// Blocking progress overlay ("Booting…", "Deleting game…").
-    private(set) var busyMessage: String?
+    @Published private(set) var busyMessage: String?
 
     /// Grid vs list. The landscape carousel is a presentation of grid mode,
     /// not a third setting.
-    var isListMode: Bool {
+    @Published var isListMode: Bool {
         didSet {
             guard isListMode != oldValue else { return }
             UserDefaults.standard.set(isListMode, forKey: Self.listModeKey)
@@ -48,7 +47,7 @@ final class LibraryState {
     }
 
     /// Persisted ordering shared by list, grid, carousel, and controller focus.
-    private(set) var sortOption: LibrarySortOption
+    @Published private(set) var sortOption: LibrarySortOption
 
     /// Matches the key the Objective-C frontend used, so the user's choice
     /// survives the migration.
@@ -64,7 +63,7 @@ final class LibraryState {
     /// Title ID of the pad-focused game, or nil when the pad is not driving.
     /// The ring is only drawn while this is non-nil, so touch users never see
     /// a focus indicator.
-    private(set) var focusedTitleID: String?
+    @Published private(set) var focusedTitleID: String?
 
     /// Columns currently rendered by the grid, measured by the view. Needed so
     /// up/down move a whole row rather than one item.
@@ -72,11 +71,11 @@ final class LibraryState {
 
     /// Set when the pad asks for the game-actions menu; the view presents it
     /// and clears this.
-    var padActionsTarget: GameEntry?
+    @Published var padActionsTarget: GameEntry?
 
     /// Raised each time the pad activates a game, so the view can launch it
     /// through the same gating path a tap uses.
-    var padLaunchTarget: GameEntry?
+    @Published var padLaunchTarget: GameEntry?
 
     /// Carousel D-pad stepping, as a running net-steps total rather than a
     /// token + direction. Two rapid presses can coalesce into a single
@@ -85,7 +84,7 @@ final class LibraryState {
     /// one drifted apart and the next press looked like it skipped a game. An
     /// accumulator lets the carousel step by the true delta since it last read
     /// it, so coalesced presses still move the right number of covers.
-    private(set) var carouselStepAccumulator = 0
+    @Published private(set) var carouselStepAccumulator = 0
 
     private var statusDismissal: Task<Void, Never>?
 
@@ -319,8 +318,8 @@ final class LibraryState {
 
 /// Objective-C entry point for pushing library state in.
 ///
-/// Split out for the same reason as FirmwareStateBridge: @Observable rewrites
-/// stored properties into computed ones, which cannot be exposed to @objc.
+/// Split out for the same reason as FirmwareStateBridge: the observable model
+/// stays free of Objective-C runtime concerns.
 @objc(TsubomiLibraryStateBridge)
 @MainActor
 final class LibraryStateBridge: NSObject {

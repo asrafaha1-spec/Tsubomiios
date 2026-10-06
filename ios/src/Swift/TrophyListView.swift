@@ -1,11 +1,9 @@
 import SwiftUI
-import Observation
 
-@Observable
 @MainActor
-final class TrophyState {
+final class TrophyState: ObservableObject {
     static let shared = TrophyState()
-    var collection: TrophyCollection?
+    @Published var collection: TrophyCollection?
 
     private init() {}
 
@@ -32,7 +30,7 @@ final class TrophyStateBridge: NSObject {
 /// UIKit table stutter on first scroll.
 @MainActor
 struct TrophyListView: View {
-    @State private var state = TrophyState.shared
+    @ObservedObject private var state = TrophyState.shared
     let onFinish: () -> Void
 
     /// Non-nil while a trophy's art is shown full screen.
@@ -44,7 +42,7 @@ struct TrophyListView: View {
                 if let collection = state.collection {
                     List(collection.trophies) { trophy in
                         TrophyRow(trophy: trophy)
-                            .contentShape(.rect)
+                            .contentShape(Rectangle())
                             .onTapGesture {
                                 // Only art worth showing opens the viewer.
                                 if !trophy.iconPath.isEmpty {
@@ -139,7 +137,7 @@ private struct TrophyIcon: View {
             }
         }
         .frame(width: 56, height: 56)
-        .clipShape(.rect(cornerRadius: 10, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         .task(id: trophy.iconPath) {
             guard !trophy.iconPath.isEmpty else { return }
             image = await CoverImageLoader.image(atPath: trophy.iconPath)
@@ -171,7 +169,7 @@ private struct TrophyArtView: View {
                     .padding(.bottom, 40)
             }
         }
-        .contentShape(.rect)
+        .contentShape(Rectangle())
         .onTapGesture(perform: onDismiss)
         .task(id: trophy.iconPath) {
             image = await CoverImageLoader.image(atPath: trophy.iconPath)

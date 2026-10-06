@@ -13,7 +13,7 @@ import SwiftUI
 /// tap and a drag rather than the raw multi-touch the game controls need.
 @MainActor
 struct ControlsOverlayView: View {
-    @State private var model = ControlsModel.shared
+    @ObservedObject private var model = ControlsModel.shared
     let onMenuTap: () -> Void
 
     /// Read here as well as inside `OverlaySurface` because the container and
@@ -85,7 +85,7 @@ struct ControlsOverlayView: View {
             // The default spread keeps the shapes apart; the container's
             // merge distance can stay large so adjacent glass blends its
             // highlights the way the system intends.
-            GlassEffectContainer(spacing: 18) {
+            AdaptiveGlassContainer(spacing: 18) {
                 controlStack(in: size)
             }
         } else {
@@ -117,7 +117,7 @@ struct ControlsOverlayView: View {
     @ViewBuilder
     private func controlBody(_ definition: ControlDefinition) -> some View {
         // Each leaf reads its own keyed state (offset / pressed) inside its own
-        // body, so @Observable scopes the invalidation to just that control.
+        // body, so only that control observes the touch-rate state.
         // Reading those here, in this parent body, would rebuild the whole
         // overlay on every stick move - the highest-frequency input path.
         switch definition.kind {
@@ -155,7 +155,7 @@ struct ControlsOverlayView: View {
             .font(.system(size: 18, weight: .semibold))
             .foregroundStyle(.primary)
             .frame(width: frame.width, height: frame.height)
-            .overlaySurface(.circle)
+            .overlaySurface(Circle())
             .overlay {
                 if model.isEditing {
                     Circle().strokeBorder(.tint, lineWidth: 1.5)
@@ -215,12 +215,13 @@ struct ControlsOverlayView: View {
 
     /// The two button styles are separate views rather than one erased style:
     /// `.glass` and `.bordered` are distinct types, and ButtonStyle has no
-    /// type-erasing wrapper to choose between them at runtime.
+    /// type-erasing wrapper to choose between them at runtime. Before iOS 26
+    /// `glassButtonStyle` resolves to the bordered style as well.
     @ViewBuilder
     private var editorDoneButton: some View {
         if liquidGlass {
             Button("Done", action: finishEditing)
-                .buttonStyle(.glassProminent)
+                .glassButtonStyle(prominent: true)
                 .controlSize(.large)
         } else {
             Button("Done", action: finishEditing)
@@ -261,7 +262,7 @@ struct ControlsOverlayView: View {
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
-                .overlaySurface(.capsule)
+                .overlaySurface(Capsule())
             Spacer()
         }
         // Clear the notch / Dynamic Island: the overlay is full-bleed, so
@@ -277,7 +278,7 @@ struct ControlsOverlayView: View {
 /// so a control that has snapped can still be pulled away smoothly instead of
 /// re-snapping on every tick.
 private struct EditDragModifier: ViewModifier {
-    let model: ControlsModel
+    @ObservedObject var model: ControlsModel
     let definition: ControlDefinition
     let size: CGSize
 
@@ -316,7 +317,7 @@ private struct EditDragModifier: ViewModifier {
 
 /// Drag-to-reposition the performance overlay, active only in edit mode.
 private struct PerfDragModifier: ViewModifier {
-    let model: ControlsModel
+    @ObservedObject var model: ControlsModel
     let size: CGSize
 
     @State private var base: CGPoint?
@@ -343,9 +344,19 @@ private struct PerfDragModifier: ViewModifier {
 }
 
 /// A button, shoulder, trigger, or word-labelled control.
+@MainActor
 private struct ControlFace: View {
     let definition: ControlDefinition
     var model: ControlsModel
+    /// Observed here, not by the parent overlay, so a press redraws only this
+    /// control.
+    @ObservedObject private var live: ControlsLiveState
+
+    init(definition: ControlDefinition, model: ControlsModel) {
+        self.definition = definition
+        self.model = model
+        _live = ObservedObject(wrappedValue: model.live)
+    }
 
     @AppStorage(DefaultsKey.coloredFaceButtons.rawValue) private var coloredFaceButtons = true
 
@@ -376,7 +387,7 @@ private struct ControlFace: View {
     var body: some View {
         // Read inside this leaf's body so only this control invalidates when
         // its own pressed state changes.
-        let isPressed = model.pressedControls.contains(definition.id)
+        let isPressed = live.pressedControls.contains(definition.id)
         // A coloured face glyph keeps its colour when pressed (the glass tint
         // provides the press feedback); everything else follows the tint on
         // press, primary otherwise.
@@ -397,19 +408,27 @@ private struct ControlFace: View {
     /// Circles and capsules keep circular corners: a continuous curve at a
     /// radius of half the height is a squircle, not a pill.
     private var shape: some Shape {
-        definition.baseSize.width == definition.baseSize.height ? AnyShape(.circle) : AnyShape(.capsule)
+        definition.baseSize.width == definition.baseSize.height ? AnyShape(Circle()) : AnyShape(Capsule())
     }
 }
 
 /// An analogue stick: a well with a thumb that follows the touch.
+@MainActor
 private struct StickControl: View {
     let definition: ControlDefinition
     var model: ControlsModel
+    @ObservedObject private var live: ControlsLiveState
+
+    init(definition: ControlDefinition, model: ControlsModel) {
+        self.definition = definition
+        self.model = model
+        _live = ObservedObject(wrappedValue: model.live)
+    }
 
     var body: some View {
         // Read the offset in this leaf's body so a thumb move invalidates only
         // this stick, not the whole overlay.
-        let offset = model.stickOffsets[definition.id] ?? .zero
+        let offset = live.stickOffsets[definition.id] ?? .zero
         return GeometryReader { proxy in
             StickFace(side: min(proxy.size.width, proxy.size.height), offset: offset)
         }
@@ -420,16 +439,24 @@ private struct StickControl: View {
 ///
 /// Present in the hierarchy whether or not it is up, so raising one never
 /// invalidates the overlay around it - only this leaf.
+@MainActor
 private struct FloatingStick: View {
     let id: String
     var model: ControlsModel
+    @ObservedObject private var live: ControlsLiveState
+
+    init(id: String, model: ControlsModel) {
+        self.id = id
+        self.model = model
+        _live = ObservedObject(wrappedValue: model.live)
+    }
 
     var body: some View {
-        let center = model.dynamicStickCenters[id]
+        let center = live.dynamicStickCenters[id]
         return ZStack {
             if let center {
                 StickFace(side: model.dynamicStickDiameter,
-                          offset: model.stickOffsets[id] ?? .zero)
+                          offset: live.stickOffsets[id] ?? .zero)
                     .position(x: center.x, y: center.y)
                     // Materialises rather than snapping in, which is what the
                     // material does everywhere else in the app.
@@ -456,7 +483,7 @@ private struct StickFace: View {
         let travel = (side - thumbSide) / 2
         return ZStack {
             Color.clear
-                .overlaySurface(.circle)
+                .overlaySurface(Circle())
             Circle()
                 // The thumb is a second backdrop read on top of the well's.
                 // With the material off it is a flat disc instead.

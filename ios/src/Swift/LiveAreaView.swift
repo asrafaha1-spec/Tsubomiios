@@ -45,7 +45,7 @@ struct LiveAreaView: View {
                             .padding(20)
                             .background(
                                 .regularMaterial,
-                                in: .rect(cornerRadius: 18, style: .continuous)
+                                in: RoundedRectangle(cornerRadius: 18, style: .continuous)
                             )
                     }
                 }
@@ -125,7 +125,7 @@ private struct LiveAreaCanvas: View {
             .frame(width: gateRect.width, height: gateRect.height)
             .clipped()
             .background(Color(red: 47 / 255, green: 51 / 255, blue: 50 / 255))
-            .clipShape(.rect(cornerRadius: 10))
+            .clipShape(RoundedRectangle(cornerRadius: 10))
             .overlay {
                 RoundedRectangle(cornerRadius: 10)
                     .stroke(Color(white: 0.75), lineWidth: 3)
@@ -139,7 +139,7 @@ private struct LiveAreaCanvas: View {
                     .frame(width: 120, height: 32)
                     .background(
                         Color(red: 20 / 255, green: 168 / 255, blue: 222 / 255),
-                        in: .rect(cornerRadius: 10)
+                        in: RoundedRectangle(cornerRadius: 10)
                     )
             }
             .buttonStyle(.plain)

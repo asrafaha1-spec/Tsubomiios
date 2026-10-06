@@ -22,6 +22,7 @@ PYTHON3="${PYTHON3:-/usr/local/bin/python3.13}"
 
 cmake -S . -B build-ios-upstream -G Xcode \
   -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" \
+  -DVCPKG_OVERLAY_TRIPLETS="$REPO_ROOT/ios/triplets" \
   -DVCPKG_TARGET_TRIPLET=arm64-ios \
   -DCMAKE_SYSTEM_NAME=iOS \
   -DCMAKE_OSX_SYSROOT=iphoneos \
@@ -31,7 +32,7 @@ cmake -S . -B build-ios-upstream -G Xcode \
   -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_REQUIRED=NO \
   -DVITA3K_BUILD_IOS_UPSTREAM_CORE=ON \
   -DVITA3K_BUILD_IOS=OFF \
-  -DVITA3K_IOS_DEPLOYMENT_TARGET=26.0 \
+  -DVITA3K_IOS_DEPLOYMENT_TARGET=16.3 \
   -DVITA3K_IOS_LINK_CORE=ON \
   -DVITA3K_IOS_MOLTENVK_LIBRARY="$MVK_ROOT/static/MoltenVK.xcframework/ios-arm64/libMoltenVK.a" \
   -DVITA3K_IOS_MOLTENVK_INCLUDE_DIR="$MVK_ROOT/include" \

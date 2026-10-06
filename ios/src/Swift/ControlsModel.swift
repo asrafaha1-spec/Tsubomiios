@@ -1,5 +1,4 @@
 import Foundation
-import Observation
 import SwiftUI
 
 /// What a single on-screen control does.
@@ -82,25 +81,32 @@ struct ControlPlacement: Equatable {
     var visible: Bool
 }
 
+/// Touch-rate state for the on-screen controller; see `ControlsModel.live`.
+@MainActor
+final class ControlsLiveState: ObservableObject {
+    @Published var pressedControls: Set<String> = []
+    @Published var stickOffsets: [String: CGPoint] = [:]
+    @Published var dynamicStickCenters: [String: CGPoint] = [:]
+}
+
 /// The on-screen controller's configuration and geometry.
 ///
 /// Deliberately the single source of truth for control frames: both the SwiftUI
 /// rendering and the raw-touch surface ask this type where a control is, so the
 /// thing the user sees and the thing that receives the touch can never drift
 /// apart.
-@Observable
 @MainActor
-final class ControlsModel {
+final class ControlsModel: ObservableObject {
     static let shared = ControlsModel()
 
     // MARK: - Settings
 
-    var opacity: Double = 0.58 { didSet { scheduleSave() } }
-    var scale: Double = 1.0 { didSet { scheduleSave() } }
+    @Published var opacity: Double = 0.58 { didSet { scheduleSave() } }
+    @Published var scale: Double = 1.0 { didSet { scheduleSave() } }
     /// Also republishes the touchscreen state: with a pad attached this decides
     /// whether the overlay is on screen at all, and so whether floating sticks
     /// are still claiming every touch.
-    var hideWhenPhysical = true {
+    @Published var hideWhenPhysical = true {
         didSet {
             guard hideWhenPhysical != oldValue else { return }
             endDynamicSticks()
@@ -108,8 +114,8 @@ final class ControlsModel {
             scheduleSave()
         }
     }
-    var hapticStrength: HapticStrength = .light { didSet { scheduleSave() } }
-    var snapGuides = true { didSet { scheduleSave() } }
+    @Published var hapticStrength: HapticStrength = .light { didSet { scheduleSave() } }
+    @Published var snapGuides = true { didSet { scheduleSave() } }
 
     /// Whether any touch feedback is wanted at all. Written to the saved file
     /// under the key the fixed-strength version used.
@@ -121,7 +127,7 @@ final class ControlsModel {
     /// Off by default. Turning it on hands the whole screen to the controller,
     /// which means Vita touchscreen input can no longer reach the game - see
     /// `publishTouchscreenState()`.
-    var dynamicSticks = false {
+    @Published var dynamicSticks = false {
         didSet {
             guard dynamicSticks != oldValue else { return }
             endDynamicSticks()
@@ -131,10 +137,10 @@ final class ControlsModel {
     }
 
     /// Placements per orientation key ("portrait" / "landscape").
-    private(set) var layouts: [String: [String: ControlPlacement]] = [:]
+    @Published private(set) var layouts: [String: [String: ControlPlacement]] = [:]
 
     /// True while the user is dragging controls around.
-    var isEditing = false {
+    @Published var isEditing = false {
         didSet {
             guard isEditing != oldValue else { return }
             endDynamicSticks()
@@ -143,7 +149,7 @@ final class ControlsModel {
     }
     /// Set while a physical controller is attached; with `hideWhenPhysical`
     /// this hides the overlay.
-    var physicalControllerConnected = false {
+    @Published var physicalControllerConnected = false {
         didSet {
             guard physicalControllerConnected != oldValue else { return }
             endDynamicSticks()
@@ -151,25 +157,42 @@ final class ControlsModel {
         }
     }
 
+    /// Per-touch presentation state (pressed controls, thumb offsets, floating
+    /// stick centres). Held in its own object, not as properties of this
+    /// model: the parent overlay observes the model, and these change on every
+    /// touch event. Only the leaf views that actually draw a control observe
+    /// `live`, so a stick move redraws that stick and not the whole overlay.
+    /// The forwarding properties below keep every other call site unchanged.
+    let live = ControlsLiveState()
+
     /// Controls currently held down, for the pressed tint. Touch identity is
     /// owned by the touch surface; this is presentation only.
-    var pressedControls: Set<String> = []
+    var pressedControls: Set<String> {
+        get { live.pressedControls }
+        set { live.pressedControls = newValue }
+    }
     /// Live thumb offsets for the sticks, normalized to -1...1.
-    var stickOffsets: [String: CGPoint] = [:]
+    var stickOffsets: [String: CGPoint] {
+        get { live.stickOffsets }
+        set { live.stickOffsets = newValue }
+    }
     /// Where each floating stick was placed, in overlay coordinates. A key is
     /// present only while that stick's finger is down, so this doubles as the
     /// "is this zone taken" test.
-    var dynamicStickCenters: [String: CGPoint] = [:]
+    var dynamicStickCenters: [String: CGPoint] {
+        get { live.dynamicStickCenters }
+        set { live.dynamicStickCenters = newValue }
+    }
 
     /// Guide lines shown while dragging, in overlay coordinates. Nil when the
     /// dragged control is not aligned with anything.
-    var verticalGuideX: CGFloat?
-    var horizontalGuideY: CGFloat?
+    @Published var verticalGuideX: CGFloat?
+    @Published var horizontalGuideY: CGFloat?
 
     /// Top safe-area inset in points, reported by the hosting controller. Used
     /// to keep the editor's Done button clear of the notch/Dynamic Island,
     /// since the overlay itself is full-bleed and has no safe area of its own.
-    var topSafeInset: CGFloat = 0
+    @Published var topSafeInset: CGFloat = 0
 
     // MARK: - Definitions
 
@@ -339,7 +362,7 @@ final class ControlsModel {
 
     /// Normalized centre per orientation, like the controls. Kept here so the
     /// layout editor can drag it with the same machinery.
-    private(set) var perfPositions: [String: CGPoint] = [:]
+    @Published private(set) var perfPositions: [String: CGPoint] = [:]
 
     private static func defaultPerfPosition(_ orientation: String) -> CGPoint {
         // Below the notch, out of the way of the thumbs.

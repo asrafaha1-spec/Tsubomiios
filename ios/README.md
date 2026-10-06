@@ -428,3 +428,17 @@ The accepted Milestone 37 run accepted controller sampling mode 2, then advanced
 4. Share the complete next boundary plus any `Touch HLE:`, `Time HLE:`, `Power HLE:`, and `Display HLE:` diagnostics.
 
 The Actions artifact includes `milestone38-startup-services.zip`, whose legal synthetic title enables front-panel sampling and reads it back through mapped guest memory. Portable companions cover panel geometry read back through guest memory, empty peek/read output, virtual-clock monotonicity, RTC pointers, clock frequency requests, vblank waits, framebuffer validation, and unmapped/null/invalid boundaries for every family.
+
+## Supported iOS versions
+
+The app deploys to **iOS 16.3 and later** (16.3 is the first iOS 16 release whose libc++ ships the complete `<charconv>`/`std::format` the core needs). It is still *built* with the iOS 26 SDK, because the Liquid Glass code is compiled in and selected at runtime.
+
+How the newer-OS UI is handled:
+
+- `ios/src/Swift/Compat.swift` is the single place that decides between a modern API and its iOS 16 equivalent: `compatOnChange` (iOS 17 `onChange`), `compatSnappy`, `compatSelectionHaptic` (iOS 17 `sensoryFeedback`), `compatBounceSymbol`, `compatPresentationBackground` (iOS 16.4), `compatOnWidthChange` (iOS 18 `onGeometryChange`), `CompatEmptyState` (iOS 17 `ContentUnavailableView`), and the Liquid Glass wrappers `adaptiveGlass`, `glassButtonStyle` and `AdaptiveGlassContainer`. On iOS 26 these resolve to the real glass APIs; before that, to system materials and bordered buttons.
+- The Observation framework is iOS 17, so the state models are `ObservableObject`s. The per-touch controller state lives in its own `ControlsLiveState` so a stick move still redraws only that stick.
+- `CoverCarousel` picks between `ModernCoverCarousel` (iOS 17 scroll APIs) and `LegacyCoverCarousel` (iOS 16: `ScrollViewReader`, per-cover geometry, debounced snap).
+- `NativeFrontend.mm` only creates a `UIGlassEffect` on iOS 26; earlier systems get a system blur.
+- vcpkg dependencies are built with `ios/triplets/arm64-ios.cmake`, which pins their deployment target to the same version as the app.
+
+Keep `VITA3K_IOS_DEPLOYMENT_TARGET` (CMake and the `gen-ios*.sh` scripts / workflows) and `VCPKG_OSX_DEPLOYMENT_TARGET` in the triplets equal.

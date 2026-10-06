@@ -6,22 +6,21 @@ import SwiftUI
 /// polled, so this view does no timer work of its own — it is the screen the
 /// device sits on for hours at a time, and a repeating wake-up here would be a
 /// battery cost for a diagnostic most players leave off.
-@Observable
 @MainActor
-final class PerformanceState {
+final class PerformanceState: ObservableObject {
     static let shared = PerformanceState()
 
-    private(set) var guestFPS: Double = 0
-    private(set) var frametimeMilliseconds: Double = 0
-    private(set) var memoryMegabytes: Double = 0
+    @Published private(set) var guestFPS: Double = 0
+    @Published private(set) var frametimeMilliseconds: Double = 0
+    @Published private(set) var memoryMegabytes: Double = 0
     /// -1 when the system will not report a level.
-    private(set) var batteryPercent: Int = -1
+    @Published private(set) var batteryPercent: Int = -1
     /// Recent frametimes for the graph, oldest first.
-    private(set) var frametimeHistory: [Double] = []
+    @Published private(set) var frametimeHistory: [Double] = []
 
     /// Whether the overlay is on screen at all. Driven by the metric toggles
     /// plus the "hidden" flag the in-game panel sets.
-    private(set) var isVisible = false
+    @Published private(set) var isVisible = false
 
     private static let historyLength = 60
 
@@ -66,7 +65,7 @@ struct PerformanceOverlayView: View {
     /// off, and it accepts hits so the drag gesture can land on it.
     var editingProxy: Bool = false
 
-    @State private var state = PerformanceState.shared
+    @ObservedObject private var state = PerformanceState.shared
 
     @AppStorage(DefaultsKey.perfFPS.rawValue) private var showFPS = false
     @AppStorage(DefaultsKey.perfFrametime.rawValue) private var showFrametime = false
@@ -85,7 +84,7 @@ struct PerformanceOverlayView: View {
                 Text(editingProxy && !hasAnyMetric ? "60 FPS · 16.7 ms" : readout)
                     .font(.caption.monospacedDigit().weight(.semibold))
                     .fixedSize()
-                    .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { textWidth = $0 }
+                    .compatOnWidthChange { textWidth = $0 }
                 if showGraph || (editingProxy && !hasAnyMetric) {
                     // Exactly the readout's width, so the line reaches the box's
                     // right edge without the overlay growing to fill the screen.
@@ -99,7 +98,7 @@ struct PerformanceOverlayView: View {
             // interactive variant would run a live refraction pass every frame
             // for a readout nobody touches. Follows the in-game material
             // setting, so turning glass off leaves no backdrop read at all.
-            .overlaySurface(.rect(cornerRadius: 16, style: .continuous))
+            .overlaySurface(RoundedRectangle(cornerRadius: 16, style: .continuous))
             .overlay {
                 if editingProxy {
                     RoundedRectangle(cornerRadius: 16, style: .continuous)

@@ -14,7 +14,7 @@ extension View {
                 .opacity(isFocused ? 1 : 0)
                 .padding(-4)
         }
-        .animation(.snappy(duration: 0.15), value: isFocused)
+        .animation(.compatSnappy(duration: 0.15), value: isFocused)
         .accessibilityAddTraits(isFocused ? .isSelected : [])
     }
 }
@@ -36,6 +36,10 @@ struct GameCover: View {
     var forcesWide: Bool = false
     @State private var image: UIImage?
     @AppStorage(DefaultsKey.wideCoverArt.rawValue) private var wideCoverArt = true
+    /// Mirrors `LibraryState.artGeneration` through its publisher rather than
+    /// observing the whole state: every cover is on screen at once, and none of
+    /// them should redraw for an unrelated change such as a toast.
+    @State private var artGeneration = LibraryState.shared.artGeneration
 
     /// The Vita banner art (pic0.png) is wider than tall, so square-cropping
     /// loses its sides. In wide mode the cover uses a fixed 16:9 frame;
@@ -64,12 +68,13 @@ struct GameCover: View {
             // clipShape alone does not stop an overflowing overlay from being
             // drawn outside the bounds; clipped() bounds it first.
             .clipped()
-            .clipShape(.rect(cornerRadius: cornerRadius, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             // Keyed on path and art generation: the path alone does not change
             // when an install/license makes art appear.
-            .task(id: "\(artPath)#\(LibraryState.shared.artGeneration)#\(wideCoverArt)") {
+            .task(id: "\(artPath)#\(artGeneration)#\(wideCoverArt)") {
                 image = await CoverImageLoader.image(atPath: artPath)
             }
+            .onReceive(LibraryState.shared.$artGeneration) { artGeneration = $0 }
     }
 
     /// Vita pic0 artwork is authored for a 16:9 banner. Fixing that frame keeps
@@ -90,13 +95,13 @@ struct GameCover: View {
                 .aspectRatio(contentMode: .fill)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .scaleEffect(wide ? 1.01 : 1)
-                .background(.fill.secondary)
+                .background(Color(.secondarySystemFill))
         } else {
             Image(systemName: "gamecontroller.fill")
                 .font(.largeTitle)
                 .foregroundStyle(.pink)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(.fill.secondary)
+                .background(Color(.secondarySystemFill))
         }
     }
 }
@@ -177,7 +182,7 @@ struct GameCard: View {
         // card disappear into its white parent. This matching non-grouped
         // semantic level stays distinct in both appearances.
         .background(Color(.secondarySystemBackground),
-                    in: .rect(cornerRadius: 26, style: .continuous))
+                    in: RoundedRectangle(cornerRadius: 26, style: .continuous))
         .accessibilityElement(children: .combine)
     }
 }
@@ -236,7 +241,7 @@ struct GameRow: View {
             Spacer(minLength: 0)
         }
         .padding(.vertical, 4)
-        .contentShape(.rect)
+        .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
     }
 
@@ -257,7 +262,7 @@ struct GameRow: View {
             Spacer(minLength: 0)
         }
         .padding(.vertical, 2)
-        .contentShape(.rect)
+        .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
     }
 

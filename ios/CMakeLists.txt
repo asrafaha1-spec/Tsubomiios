@@ -1,10 +1,13 @@
 cmake_minimum_required(VERSION 3.22)
 
-# iOS 26 minimum. The frontend is SwiftUI built around Liquid Glass, which is
-# iOS 26 and later; supporting anything earlier meant carrying a parallel
-# UIBlurEffect presentation of every surface and availability-guarding each
-# API, for devices that cannot run the design the app is built around.
-set(VITA3K_IOS_DEPLOYMENT_TARGET "26.0" CACHE STRING "Minimum supported iOS version")
+# iOS 16.3 minimum (16.3 is the first iOS 16 release whose libc++ ships the
+# complete <charconv>/std::format the core needs). The frontend is SwiftUI
+# designed around Liquid Glass (iOS 26): on iOS 26+ it uses the real glass
+# materials, and on older systems it falls back to system blur materials, the
+# observation framework of iOS 17 is replaced by ObservableObject, and iOS 17+
+# SwiftUI APIs are availability-guarded. Normally defined in the top-level
+# CMakeLists.txt; this default only applies if this file is configured alone.
+set(VITA3K_IOS_DEPLOYMENT_TARGET "16.3" CACHE STRING "Minimum supported iOS version")
 set(VITA3K_IOS_BUNDLE_ID "org.vita3k.experimental.ios" CACHE STRING "Application bundle identifier")
 option(VITA3K_IOS_LINK_CORE "Link the first upstream Vita3K core slice" ON)
 

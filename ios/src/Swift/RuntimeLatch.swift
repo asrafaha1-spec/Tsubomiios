@@ -1,13 +1,12 @@
+import Combine
 import Foundation
-import Observation
 
 /// Process-lifetime latch for an intentionally undiscoverable support surface.
 ///
 /// Nothing is written to defaults or disk. Terminating the process destroys
 /// the singleton and closes the surface again.
-@Observable
 @MainActor
-final class RuntimeLatch {
+final class RuntimeLatch: ObservableObject {
     static let shared = RuntimeLatch()
 
     private struct Pulse {
@@ -22,7 +21,7 @@ final class RuntimeLatch {
     private static let quota =
         MemoryLayout<UInt64>.size + MemoryLayout<UInt16>.size
     private var channels: [UInt32: Pulse] = [:]
-    private(set) var revealed = false
+    @Published private(set) var revealed = false
 
     private init() {}
 

@@ -1,5 +1,5 @@
+import Combine
 import Foundation
-import Observation
 
 /// Live firmware-installation state.
 ///
@@ -7,17 +7,16 @@ import Observation
 /// them runs asynchronously on the emulator thread. Rather than polling, the
 /// core pushes a new settings snapshot through `FirmwareStateBridge` whenever
 /// the library refreshes, and the observing views update themselves.
-@Observable
 @MainActor
-final class FirmwareState {
+final class FirmwareState: ObservableObject {
     static let shared = FirmwareState()
 
-    private(set) var preinstalledReady = false
-    private(set) var fontPackageReady = false
-    private(set) var mainFirmwareReady = false
+    @Published private(set) var preinstalledReady = false
+    @Published private(set) var fontPackageReady = false
+    @Published private(set) var mainFirmwareReady = false
     /// All three official packages have populated their partitions. Games stay
     /// unavailable until this is true.
-    private(set) var allPackagesReady = false
+    @Published private(set) var allPackagesReady = false
 
     private init() {
         let settings = Bridge.currentSettings
@@ -35,8 +34,8 @@ final class FirmwareState {
         mainFirmware: Bool,
         allReady: Bool
     ) {
-        // Assign only on change: @Observable treats every write as a mutation,
-        // and this is called on each library refresh.
+        // Assign only on change: @Published announces every write, and this is
+        // called on each library refresh.
         if preinstalledReady != preinstalled { preinstalledReady = preinstalled }
         if fontPackageReady != font { fontPackageReady = font }
         if mainFirmwareReady != mainFirmware { mainFirmwareReady = mainFirmware }
@@ -46,9 +45,8 @@ final class FirmwareState {
 
 /// Objective-C entry point for pushing firmware state in.
 ///
-/// Separate from `FirmwareState` because `@Observable` and `@objc` do not mix:
-/// the macro rewrites stored properties into computed ones backed by an
-/// observation registrar, which cannot be exposed to the Objective-C runtime.
+/// Separate from `FirmwareState` so the observable model stays free of
+/// Objective-C runtime concerns; this type is the only `@objc` surface.
 @objc(TsubomiFirmwareStateBridge)
 @MainActor
 final class FirmwareStateBridge: NSObject {

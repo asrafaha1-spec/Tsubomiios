@@ -27,7 +27,7 @@ struct OverlaySurface<S: Shape>: ViewModifier {
     @ViewBuilder
     func body(content: Content) -> some View {
         if liquidGlass {
-            content.glassEffect(tinted ? .regular.tint(.accentColor) : .regular, in: shape)
+            content.adaptiveGlass(in: shape, tint: tinted ? Color.accentColor : nil)
         } else {
             content
                 // Glass resolves its own contrast against whatever is behind
