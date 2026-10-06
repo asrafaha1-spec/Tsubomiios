@@ -387,6 +387,18 @@ bool ios_jit_capability_enabled() {
 // iOS 26 universal JIT needs the debugger attached while the permanent RX/RW
 // region pool is prepared. CS_DEBUGGED survives a detach, but it is not enough
 // to service Oaknut's BRK request. Once the pool is complete, detaching is safe.
+// iOS 26 (TXM) needs the debugger-assisted region pool above. iOS 16-18 use the
+// traditional model instead: once CS_DEBUGGED is set (StikDebug, TrollStore's
+// "enable JIT", AltJIT, ...) plain RWX mappings work and no debugger has to stay
+// attached, so the P_TRACED requirement must not apply there.
+bool ios_requires_universal_jit() {
+    char version[32]{};
+    std::size_t version_size = sizeof(version);
+    if (sysctlbyname("kern.osproductversion", version, &version_size, nullptr, 0) != 0)
+        return false;
+    return std::strtoul(version, nullptr, 10) >= 26;
+}
+
 bool ios_jit_available() {
 #if !defined(__aarch64__)
     // x86_64 Simulator: the iOS 26 universal-JIT/debugger model does not apply.
@@ -394,8 +406,11 @@ bool ios_jit_available() {
     // dynarmic's x64 backend needs no StikDebug session to be usable.
     return true;
 #else
-    return g_jit_pool_ready.load(std::memory_order_relaxed)
-        || (ios_jit_capability_enabled() && ios_debugger_attached());
+    if (g_jit_pool_ready.load(std::memory_order_relaxed))
+        return true;
+    if (!ios_requires_universal_jit())
+        return ios_jit_capability_enabled();
+    return ios_jit_capability_enabled() && ios_debugger_attached();
 #endif
 }
 
@@ -2648,6 +2663,15 @@ bool prepare_ios_jit_pool() {
     vita3k_ios_set_jit_available(true);
     return true;
 #else
+    if (!ios_requires_universal_jit()) {
+        // iOS 16-18: no region pool to prepare, RWX mappings are created on
+        // demand while CS_DEBUGGED is set (see ios_requires_universal_jit).
+        if (!ios_jit_capability_enabled())
+            return false;
+        g_jit_pool_ready.store(true, std::memory_order_relaxed);
+        vita3k_ios_set_jit_available(true);
+        return true;
+    }
     if (!ios_debugger_attached())
         return false;
 
