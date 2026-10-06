@@ -29,6 +29,7 @@ if(VITA3K_BUILD_IOS_UPSTREAM_CORE)
     add_executable(Vita3KiOS MACOSX_BUNDLE
         src/NativeFrontend.mm
         src/TsubomiBridge.mm
+        src/LibcxxCompat.cpp
         src/UpstreamMain.cpp
         src/VirtualController.mm
         ${VITA3K_IOS_SWIFT_SOURCES}

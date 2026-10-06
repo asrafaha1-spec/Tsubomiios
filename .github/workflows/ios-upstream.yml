@@ -170,6 +170,16 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO
 
+      - name: List system libc++ symbols the app imports (iOS 16 diagnostics)
+        # Any std:: symbol listed here must exist in the libc++ of the oldest
+        # supported iOS, otherwise dyld aborts at launch with "Symbol not found".
+        continue-on-error: true
+        run: |
+          bin="$(find build-ios-upstream -path '*Vita3K-iOS.app/Vita3K-iOS' -type f | head -1)"
+          echo "Binary: $bin"
+          xcrun nm -u -arch arm64 "$bin" | c++filt -_ | grep -E 'std::__1::' | sort -u | tee libcxx-imports.txt || true
+          echo "Total std::__1 imports: $(wc -l < libcxx-imports.txt)"
+
       - name: Package and verify unsigned IPA
         run: |
           mkdir -p artifacts
