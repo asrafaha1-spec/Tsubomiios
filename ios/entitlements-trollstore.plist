@@ -8,5 +8,12 @@
          the entitlements embedded in the binary); ignored/harmless elsewhere. -->
     <key>com.apple.developer.kernel.increased-memory-limit</key>
     <true/>
+    <!-- Required for TrollStore's "Open with JIT" and apple-magnifier://enable-jit:
+         without it nothing can attach to the app to enable JIT. Re-signing with
+         ldid -S replaces all entitlements, so it must be listed here. -->
+    <key>get-task-allow</key>
+    <true/>
+    <key>dynamic-codesigning</key>
+    <true/>
 </dict>
 </plist>
