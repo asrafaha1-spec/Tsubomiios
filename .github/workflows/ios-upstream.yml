@@ -205,11 +205,29 @@ jobs:
             --configuration Release \
             --output artifacts/Vita3K-upstream-core-iOS-unsigned.ipa
 
+      - name: Build TrollStore IPA with a raised memory limit
+        # TrollStore keeps the entitlements embedded in the binary, so this
+        # copy asks iOS for a higher jetsam limit. The plain unsigned IPA above
+        # is left untouched (package-ios.sh refuses signed bundles on purpose).
+        continue-on-error: true
+        run: |
+          brew install ldid
+          work="$(mktemp -d)"
+          unzip -q artifacts/Vita3K-upstream-core-iOS-unsigned.ipa -d "$work"
+          app_bin="$work/Payload/Vita3K-iOS.app/Vita3K-iOS"
+          ldid -S"$GITHUB_WORKSPACE/ios/entitlements-trollstore.plist" "$app_bin"
+          echo "Embedded entitlements:"
+          ldid -e "$app_bin"
+          (cd "$work" && /usr/bin/zip -qry "$GITHUB_WORKSPACE/artifacts/Vita3K-upstream-core-iOS-trollstore.ipa" Payload)
+          /usr/bin/unzip -tq artifacts/Vita3K-upstream-core-iOS-trollstore.ipa
+
       - name: Upload unsigned upstream-core IPA
         uses: actions/upload-artifact@v4
         with:
           name: Vita3K-upstream-core-iOS-${{ github.sha }}-unsigned
-          path: artifacts/Vita3K-upstream-core-iOS-unsigned.ipa
+          path: |
+            artifacts/Vita3K-upstream-core-iOS-unsigned.ipa
+            artifacts/Vita3K-upstream-core-iOS-trollstore.ipa
           if-no-files-found: error
           retention-days: 90
 
@@ -220,8 +238,8 @@ jobs:
         run: |
           tag="build-${GITHUB_REF_NAME//\//-}-${GITHUB_RUN_NUMBER}-${GITHUB_SHA::7}"
           gh release create "$tag" \
-            "artifacts/Vita3K-upstream-core-iOS-unsigned.ipa" \
+            artifacts/*.ipa \
             --target "$GITHUB_SHA" \
             --prerelease \
             --title "Unsigned IPA ${GITHUB_REF_NAME} @ ${GITHUB_SHA::7}" \
-            --notes "Unsigned iOS IPA built from ${GITHUB_REF_NAME} (${GITHUB_SHA}). Needs a way to sideload unsigned IPAs (e.g. TrollStore) and JIT enabled. Contains no games or firmware."
+            --notes "Unsigned iOS IPAs built from ${GITHUB_REF_NAME} (${GITHUB_SHA}). Use the -trollstore.ipa with TrollStore: it asks iOS for a higher memory limit. The -unsigned.ipa is the plain build for other sideloading tools. JIT must be enabled. Contains no games or firmware."

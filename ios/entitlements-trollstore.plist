@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Ask iOS for a higher per-app memory (jetsam) limit. Games such as
+         FINAL FANTASY X HD otherwise get the app killed on 4 GB devices.
+         Only honoured when the IPA is installed with TrollStore (which keeps
+         the entitlements embedded in the binary); ignored/harmless elsewhere. -->
+    <key>com.apple.developer.kernel.increased-memory-limit</key>
+    <true/>
+</dict>
+</plist>
