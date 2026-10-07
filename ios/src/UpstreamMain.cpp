@@ -2763,6 +2763,12 @@ int main(int argc, char *argv[]) {
         initial_jit_available ? "available (process is traced)"
                               : "unavailable (no debugger attached)");
 
+    // Report the per-process memory budget the OS gave us. With the
+    // increased-memory-limit entitlement (TrollStore IPA) this should be clearly
+    // higher than the ~1.8 GiB seen on a 4 GB iPhone with the plain IPA.
+    LOG_INFO("iOS memory budget at startup: {} MiB available before jetsam",
+        static_cast<unsigned long long>(os_proc_available_memory() / (1024 * 1024)));
+
     // Reserve the guest address space FIRST (the 24 JIT mappings fragment it
     // otherwise and mem::init later fails with ENOMEM), then allocate the JIT
     // region pool immediately while StikDebug is still attached. StikDebug
