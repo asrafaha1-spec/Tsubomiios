@@ -2781,14 +2781,28 @@ int main(int argc, char *argv[]) {
     // library instead of leaving a dead process behind (the old "freeze").
     bool app_terminating = false;
     bool jit_pool_prewarmed = g_jit_pool_ready.load(std::memory_order_relaxed);
+    // A title can ask the system to start another executable of itself with
+    // sceAppMgrLoadExec (e.g. the FINAL FANTASY X/X-2 HD launcher starting the
+    // real game). That request ends the current session and is booted again
+    // here, with the same per-game settings, without going back to the library.
+    std::optional<AppLaunchRequest> pending_relaunch;
+    std::optional<Vita3KIOSSettings> relaunch_settings;
     while (!app_terminating) {
-    auto launch_request = choose_boot_title(*emuenv);
+    const bool is_relaunch = pending_relaunch.has_value();
+    std::optional<AppLaunchRequest> launch_request;
+    if (is_relaunch)
+        launch_request = std::exchange(pending_relaunch, std::nullopt);
+    else
+        launch_request = choose_boot_title(*emuenv);
     if (!launch_request)
         break;
 
     // Per-game override: snapshot the runtime config, apply the override for
     // this session only, and restore the snapshot when the session ends.
-    const auto session_settings = std::exchange(g_pending_game_settings, std::nullopt);
+    const auto session_settings = is_relaunch
+        ? relaunch_settings
+        : std::exchange(g_pending_game_settings, std::nullopt);
+    relaunch_settings = session_settings;
     const auto saved_current_config = emuenv->cfg.current_config;
     const auto restore_global_config = [&] {
         if (session_settings) {
@@ -2798,8 +2812,9 @@ int main(int argc, char *argv[]) {
     };
 
     app::AppSessionController session_controller(*emuenv);
-    SDL_Log("Vita3K iOS: begin_launch '%s'", launch_request->app_path.c_str());
-    if (!session_controller.begin_launch(*launch_request)) {
+    SDL_Log("Vita3K iOS: begin_launch '%s'%s", launch_request->app_path.c_str(),
+        is_relaunch ? " (relaunch)" : "");
+    if (!session_controller.begin_launch(*launch_request, !is_relaunch)) {
         LOG_ERROR("Could not prepare app '{}' for launch.", launch_request->app_path);
         restore_global_config();
         vita3k_ios_show_boot_error(
@@ -3078,8 +3093,15 @@ int main(int argc, char *argv[]) {
         }
 
         if (auto request = emuenv->take_app_launch_request()) {
-            // In-process relaunch (LoadExec) is not supported yet on iOS.
-            LOG_WARN("Title requested relaunch of '{}'; stopping instead.", request->self_path);
+            if (request->reason == AppLaunchReason::LoadExec && !request->self_path.empty()) {
+                LOG_INFO("Title requested relaunch of '{}' ({} argument(s)); restarting the session.",
+                    request->self_path, request->argv.size());
+                if (request->app_path.empty())
+                    request->app_path = emuenv->io.app_path;
+                pending_relaunch = std::move(request);
+            } else {
+                LOG_WARN("Title requested unsupported relaunch of '{}'; stopping instead.", request->self_path);
+            }
             running = false;
         }
 
@@ -3108,8 +3130,16 @@ int main(int argc, char *argv[]) {
     emuenv->audio.adapter.reset();
     emuenv->audio.audio_backend.clear();
     restore_global_config();
+    // The title's threads can post the same LoadExec request many times before
+    // they are torn down. Only the first was consumed; discard the rest so they
+    // cannot immediately relaunch the next session.
+    emuenv->clear_app_launch_request();
 
-    LOG_INFO("Returning to game library");
+    if (pending_relaunch) {
+        LOG_INFO("Relaunching '{}' as '{}'", pending_relaunch->app_path, pending_relaunch->self_path);
+    } else {
+        LOG_INFO("Returning to game library");
+    }
     } // while (!app_terminating)
 
     SDL_DestroyWindow(window);

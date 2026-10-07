@@ -87,10 +87,16 @@ static void dismissPresentedSheet(void (^completion)(void)) {
 
 static void presentSheet(UIViewController *sheet) {
     UIViewController *presenter = sheetPresenter();
-    if (!presenter)
+    if (!presenter) {
+        SDL_Log("Vita3K iOS: cannot present sheet - no key window / root view controller");
         return;
+    }
+    SDL_Log("Vita3K iOS: presenting sheet %s from %s",
+        NSStringFromClass(sheet.class).UTF8String, NSStringFromClass(presenter.class).UTF8String);
     g_presented_sheet = sheet;
-    [presenter presentViewController:sheet animated:YES completion:nil];
+    [presenter presentViewController:sheet animated:YES completion:^{
+        SDL_Log("Vita3K iOS: sheet presented");
+    }];
 }
 
 // Restores the menu button after "Hide Menu Button". Kept as a window gesture
@@ -109,6 +115,7 @@ static void presentSheet(UIViewController *sheet) {
 static Vita3KThreeFingerTarget *g_three_finger_target = nil;
 
 static void presentGameMenu() {
+    SDL_Log("Vita3K iOS: in-game menu button tapped");
     dismissPresentedSheet(^{
         presentSheet([TsubomiGameOverlayHosts
             gameMenuViewControllerWithResume:^{
