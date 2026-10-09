@@ -2945,10 +2945,14 @@ int main(int argc, char *argv[]) {
             // Sample the OS memory headroom periodically. If a freeze is really
             // a jetsam kill, the log shows this number collapsing toward zero
             // right before the process dies (no signal is delivered for jetsam).
-            if (now_ms - last_mem_log_ms >= 10000) {
+            // Log every 10 s normally, every 2 s once headroom is below
+            // 500 MiB so a jetsam kill is preceded by a detailed trail.
+            const uint64_t headroom_mib = os_proc_available_memory() / (1024 * 1024);
+            if (now_ms - last_mem_log_ms >= (headroom_mib < 500 ? 2000 : 10000)) {
                 last_mem_log_ms = now_ms;
-                LOG_INFO("iOS memory headroom: {} MiB available before jetsam",
-                    static_cast<unsigned long long>(os_proc_available_memory() / (1024 * 1024)));
+                LOG_INFO("iOS memory headroom: {} MiB available before jetsam{}",
+                    static_cast<unsigned long long>(headroom_mib),
+                    headroom_mib < 500 ? " (LOW)" : "");
             }
 
             if (next_scheduled_dump < std::size(scheduled_dump_at_ms)

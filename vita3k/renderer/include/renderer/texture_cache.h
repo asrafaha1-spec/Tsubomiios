@@ -43,7 +43,14 @@ struct YUVConversionCache {
 };
 
 enum class Backend : uint32_t;
+#if defined(VITA3K_PLATFORM_IOS)
+// Phones have far less memory per process than desktops; fewer cached GPU
+// textures keeps the app below the OS memory (jetsam) limit. Entries are
+// recycled least-recently-used, so this only costs re-uploads.
+static constexpr size_t TextureCacheSize = 512;
+#else
 static constexpr size_t TextureCacheSize = 1024;
+#endif
 
 typedef std::array<uint32_t, 4> TextureGxmDataRepr;
 struct TextureCacheInfo {
