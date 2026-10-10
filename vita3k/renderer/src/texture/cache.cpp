@@ -290,6 +290,8 @@ using namespace texture;
 bool TextureCache::init(const bool hashless_texture_cache, const fs::path &texture_folder, std::string_view game_id, const size_t sampler_cache_size) {
     use_protect = hashless_texture_cache;
 
+    LOG_INFO("GPU texture cache size: {} entries", static_cast<unsigned long long>(TextureCacheSize));
+
     // initialize the texture queue
     texture_queue.init(TextureCacheSize);
     // set the proper index of each entry
