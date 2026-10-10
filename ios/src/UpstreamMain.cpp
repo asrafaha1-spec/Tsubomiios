@@ -50,6 +50,7 @@
 #include <renderer/frame_host.h>
 #include <renderer/functions.h>
 #include <renderer/state.h>
+#include <renderer/texture_cache.h>
 #include <touch/functions.h>
 #include <touch/state.h>
 #include <util/fs.h>
@@ -2768,6 +2769,8 @@ int main(int argc, char *argv[]) {
     // higher than the ~1.8 GiB seen on a 4 GB iPhone with the plain IPA.
     LOG_INFO("iOS memory budget at startup: {} MiB available before jetsam",
         static_cast<unsigned long long>(os_proc_available_memory() / (1024 * 1024)));
+
+    LOG_INFO("iOS GPU texture cache size: {} entries", static_cast<unsigned long long>(TextureCacheSize));
 
     // Reserve the guest address space FIRST (the 24 JIT mappings fragment it
     // otherwise and mem::init later fails with ENOMEM), then allocate the JIT

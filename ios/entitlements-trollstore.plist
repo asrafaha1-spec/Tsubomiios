@@ -13,7 +13,5 @@
          ldid -S replaces all entitlements, so it must be listed here. -->
     <key>get-task-allow</key>
     <true/>
-    <key>dynamic-codesigning</key>
-    <true/>
 </dict>
 </plist>
