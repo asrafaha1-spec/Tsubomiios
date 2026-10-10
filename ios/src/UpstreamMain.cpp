@@ -69,6 +69,8 @@
 #include <vita3k_ios/VirtualController.h>
 
 #include <algorithm>
+#include <map>
+#include <functional>
 #include <array>
 #include <atomic>
 #include <chrono>
@@ -115,6 +117,46 @@ std::vector<std::string> vita3k_ios_recent_log_lines() {
 }
 
 namespace {
+
+// Where is the app's memory? Sums dirty + swapped(compressed) pages per VM
+// region tag and returns the largest few as text, e.g. "tag 3=812 MiB, ...".
+// Tags are VM_MEMORY_* values from <mach/vm_statistics.h> (1-11 are malloc
+// zones, 0 is untagged mmap such as guest memory / JIT, 30 is stacks, ...).
+std::string vm_region_breakdown() {
+    std::map<unsigned, unsigned long long> bytes_by_tag;
+    vm_address_t address = 0;
+    natural_t depth = 0;
+    for (int guard = 0; guard < 200000; ++guard) {
+        vm_size_t size = 0;
+        vm_region_submap_info_data_64_t info{};
+        mach_msg_type_number_t count = VM_REGION_SUBMAP_INFO_COUNT_64;
+        if (vm_region_recurse_64(mach_task_self(), &address, &size, &depth,
+                reinterpret_cast<vm_region_recurse_info_t>(&info), &count)
+            != KERN_SUCCESS)
+            break;
+        if (info.is_submap) {
+            ++depth;
+            continue;
+        }
+        bytes_by_tag[info.user_tag] += (static_cast<unsigned long long>(info.pages_dirty)
+                                           + info.pages_swapped_out)
+            * vm_page_size;
+        address += size;
+    }
+    std::vector<std::pair<unsigned long long, unsigned>> sorted;
+    for (const auto &entry : bytes_by_tag)
+        sorted.emplace_back(entry.second, entry.first);
+    std::sort(sorted.begin(), sorted.end(), std::greater<>());
+    std::string text;
+    for (size_t i = 0; i < sorted.size() && i < 6; ++i) {
+        if (sorted[i].first < (8ull << 20))
+            break;
+        if (!text.empty())
+            text += ", ";
+        text += "tag " + std::to_string(sorted[i].second) + "=" + std::to_string(sorted[i].first >> 20) + " MiB";
+    }
+    return text;
+}
 
 std::string g_current_trophy_id;
 std::string g_current_title;
@@ -2965,6 +3007,8 @@ int main(int argc, char *argv[]) {
                     static_cast<unsigned long long>(headroom_mib),
                     headroom_mib < 500 ? " (LOW)" : "",
                     footprint_mib, guest_used_mib);
+                if (headroom_mib < 500)
+                    LOG_INFO("iOS memory by VM tag: {}", vm_region_breakdown());
             }
 
             if (next_scheduled_dump < std::size(scheduled_dump_at_ms)
