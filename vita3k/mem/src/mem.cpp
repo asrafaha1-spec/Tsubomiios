@@ -32,6 +32,9 @@
 #include <Windows.h>
 #else
 #include <csignal>
+#ifdef __APPLE__
+#include <dlfcn.h>
+#endif
 #include <sys/mman.h>
 #include <unistd.h>
 #endif
@@ -683,6 +686,24 @@ static void signal_handler(int sig, siginfo_t *info, void *uct) noexcept {
     }
 
     LOG_CRITICAL("Unhandled access to 0x{:X}", reinterpret_cast<uintptr_t>(info->si_addr));
+#if defined(__APPLE__) && defined(__aarch64__)
+    {
+        // Where the faulting host instruction is: lets the crash be matched
+        // against the app binary (image offset) instead of only the abort frame.
+        const uintptr_t fault_pc = static_cast<uintptr_t>(context->uc_mcontext->__ss.__pc);
+        const uintptr_t fault_lr = static_cast<uintptr_t>(context->uc_mcontext->__ss.__lr);
+        Dl_info pc_info{};
+        Dl_info lr_info{};
+        const bool pc_known = dladdr(reinterpret_cast<void *>(fault_pc), &pc_info) && pc_info.dli_fname;
+        const bool lr_known = dladdr(reinterpret_cast<void *>(fault_lr), &lr_info) && lr_info.dli_fname;
+        LOG_CRITICAL("Fault PC=0x{:X} ({} +0x{:X}) LR=0x{:X} ({} +0x{:X}) writing={} executing={}",
+            fault_pc, pc_known ? pc_info.dli_fname : "?",
+            pc_known ? fault_pc - reinterpret_cast<uintptr_t>(pc_info.dli_fbase) : 0,
+            fault_lr, lr_known ? lr_info.dli_fname : "?",
+            lr_known ? fault_lr - reinterpret_cast<uintptr_t>(lr_info.dli_fbase) : 0,
+            is_writing, is_executing);
+    }
+#endif
     raise(SIGTRAP);
     return;
 }
