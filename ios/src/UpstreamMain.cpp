@@ -44,6 +44,7 @@
 #include <emuenv/state.h>
 #include <io/state.h>
 #include <mem/functions.h>
+#include <mem/state.h>
 #include <modules/module_parent.h>
 #include <np/trophy/collection.h>
 #include <np/trophy/trp_parser.h>
@@ -123,8 +124,10 @@ namespace {
 // region tag and returns the largest few as text, e.g. "tag 3=812 MiB, ...".
 // Tags are VM_MEMORY_* values from <mach/vm_statistics.h> (1-11 are malloc
 // zones, 0 is untagged mmap such as guest memory / JIT, 30 is stacks, ...).
-std::string vm_region_breakdown() {
+std::string vm_region_breakdown(uintptr_t guest_base) {
     std::map<unsigned, unsigned long long> bytes_by_tag;
+    unsigned long long exec_bytes = 0;
+    unsigned long long guest_bytes = 0;
     vm_address_t address = 0;
     natural_t depth = 0;
     for (int guard = 0; guard < 200000; ++guard) {
@@ -139,9 +142,16 @@ std::string vm_region_breakdown() {
             ++depth;
             continue;
         }
-        bytes_by_tag[info.user_tag] += (static_cast<unsigned long long>(info.pages_dirtied)
-                                           + info.pages_swapped_out)
+        const unsigned long long region_bytes = (static_cast<unsigned long long>(info.pages_dirtied)
+                                                    + info.pages_swapped_out)
             * vm_page_size;
+        bytes_by_tag[info.user_tag] += region_bytes;
+        // Executable regions are the JIT code caches; the 4 GiB range at
+        // guest_base is the emulated console's memory.
+        if (info.protection & VM_PROT_EXECUTE)
+            exec_bytes += region_bytes;
+        if (guest_base && address >= guest_base && address < guest_base + (4ull << 30))
+            guest_bytes += region_bytes;
         address += size;
     }
     std::vector<std::pair<unsigned long long, unsigned>> sorted;
@@ -156,6 +166,7 @@ std::string vm_region_breakdown() {
             text += ", ";
         text += "tag " + std::to_string(sorted[i].second) + "=" + std::to_string(sorted[i].first >> 20) + " MiB";
     }
+    text += " | JIT(exec)=" + std::to_string(exec_bytes >> 20) + " MiB, guest region=" + std::to_string(guest_bytes >> 20) + " MiB";
     return text;
 }
 
@@ -3010,7 +3021,7 @@ int main(int argc, char *argv[]) {
                     headroom_mib < 500 ? " (LOW)" : "",
                     footprint_mib, guest_used_mib);
                 if (headroom_mib < 500)
-                    LOG_INFO("iOS memory by VM tag: {}", vm_region_breakdown());
+                    LOG_INFO("iOS memory by VM tag: {}", vm_region_breakdown(reinterpret_cast<uintptr_t>(emuenv->mem.memory.get())));
                 // Memory pressure: ask the allocator to hand freed-but-cached
                 // heap pages back to the OS (host staging buffers, decoder
                 // and container churn). Cheap, safe, and at most every ~10 s.
