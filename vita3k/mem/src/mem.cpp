@@ -524,6 +524,26 @@ Block alloc_block(MemState &mem, uint32_t size, const char *name, Address start_
     });
 }
 
+#ifndef _WIN32
+// Give the host pages behind a freed guest range back to the OS.
+// On Linux/Android madvise(MADV_DONTNEED) drops them immediately. On Apple
+// platforms MADV_DONTNEED is only a priority hint: the freed pages stay
+// resident (or sit in the compressor) and keep counting against the app's
+// jetsam footprint, so memory grew with every alloc/free cycle. Mapping fresh
+// PROT_NONE anonymous memory over the range really releases it.
+static void decommit_host_pages(uint8_t *memory, size_t size) {
+#ifdef __APPLE__
+    void *const ret = mmap(memory, size, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0);
+    LOG_CRITICAL_IF(ret == MAP_FAILED, "mmap (decommit) failed: {}", get_error_msg());
+#else
+    int ret = mprotect(memory, size, PROT_NONE);
+    LOG_CRITICAL_IF(ret == -1, "mprotect failed: {}", get_error_msg());
+    ret = madvise(memory, size, MADV_DONTNEED);
+    LOG_CRITICAL_IF(ret == -1, "madvise failed: {}", get_error_msg());
+#endif
+}
+#endif
+
 void free(MemState &state, Address address) {
     const std::lock_guard<std::mutex> lock(state.generation_mutex);
     const uint32_t page_num = address / STANDARD_PAGE_SIZE;
@@ -563,10 +583,7 @@ void free(MemState &state, Address address) {
             const BOOL ret = VirtualFree(memory, batch_size, MEM_DECOMMIT);
             LOG_CRITICAL_IF(!ret, "VirtualFree failed: {}", get_error_msg());
 #else
-            int ret = mprotect(memory, batch_size, PROT_NONE);
-            LOG_CRITICAL_IF(ret == -1, "mprotect failed: {}", get_error_msg());
-            ret = madvise(memory, batch_size, MADV_DONTNEED);
-            LOG_CRITICAL_IF(ret == -1, "madvise failed: {}", get_error_msg());
+            decommit_host_pages(memory, batch_size);
 #endif
             batch_size = 0;
         }
@@ -579,10 +596,7 @@ void free(MemState &state, Address address) {
         const BOOL ret = VirtualFree(memory, batch_size, MEM_DECOMMIT);
         LOG_CRITICAL_IF(!ret, "VirtualFree failed: {}", get_error_msg());
 #else
-        int ret = mprotect(memory, batch_size, PROT_NONE);
-        LOG_CRITICAL_IF(ret == -1, "mprotect failed: {}", get_error_msg());
-        ret = madvise(memory, batch_size, MADV_DONTNEED);
-        LOG_CRITICAL_IF(ret == -1, "madvise failed: {}", get_error_msg());
+        decommit_host_pages(memory, batch_size);
 #endif
     }
 }

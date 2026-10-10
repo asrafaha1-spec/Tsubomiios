@@ -60,6 +60,7 @@
 #include <csignal>
 #include <dlfcn.h>
 #include <execinfo.h>
+#include <mach/mach.h>
 #include <os/proc.h>
 #include <sys/sysctl.h>
 #include <unistd.h>
@@ -2950,9 +2951,20 @@ int main(int argc, char *argv[]) {
             const uint64_t headroom_mib = os_proc_available_memory() / (1024 * 1024);
             if (now_ms - last_mem_log_ms >= (headroom_mib < 500 ? 2000 : 10000)) {
                 last_mem_log_ms = now_ms;
-                LOG_INFO("iOS memory headroom: {} MiB available before jetsam{}",
+                // Break the number down: the app's total footprint as iOS
+                // counts it, and how much of the 4 GiB guest address space the
+                // game currently has allocated (guest-side, not host-resident).
+                task_vm_info_data_t vm_info{};
+                mach_msg_type_number_t vm_count = TASK_VM_INFO_COUNT;
+                unsigned long long footprint_mib = 0;
+                if (task_info(mach_task_self(), TASK_VM_INFO, reinterpret_cast<task_info_t>(&vm_info), &vm_count) == KERN_SUCCESS)
+                    footprint_mib = vm_info.phys_footprint / (1024 * 1024);
+                const unsigned long long guest_free_mib = static_cast<unsigned long long>(mem_available(emuenv->mem)) / (1024 * 1024);
+                const unsigned long long guest_used_mib = guest_free_mib <= 4096 ? 4096 - guest_free_mib : 0;
+                LOG_INFO("iOS memory headroom: {} MiB available before jetsam{} | app footprint {} MiB, guest allocated {} MiB",
                     static_cast<unsigned long long>(headroom_mib),
-                    headroom_mib < 500 ? " (LOW)" : "");
+                    headroom_mib < 500 ? " (LOW)" : "",
+                    footprint_mib, guest_used_mib);
             }
 
             if (next_scheduled_dump < std::size(scheduled_dump_at_ms)
