@@ -138,7 +138,7 @@ std::string vm_region_breakdown() {
             ++depth;
             continue;
         }
-        bytes_by_tag[info.user_tag] += (static_cast<unsigned long long>(info.pages_dirty)
+        bytes_by_tag[info.user_tag] += (static_cast<unsigned long long>(info.pages_dirtied)
                                            + info.pages_swapped_out)
             * vm_page_size;
         address += size;
