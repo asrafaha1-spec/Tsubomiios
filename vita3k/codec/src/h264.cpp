@@ -201,7 +201,11 @@ H264DecoderState::H264DecoderState(uint32_t width, uint32_t height) {
     // stall after Skip. The guarded frame copy above fixes the earlier iOS
     // out-of-bounds crash, so allow bounded frame/slice parallelism without
     // letting FFmpeg create an unbounded number of workers.
-    context->thread_count = 4;
+    // 4 threads let FFmpeg hold four frames in flight plus per-thread
+    // contexts; with the app only ~200 MiB under the iOS memory limit that
+    // transient spike when a movie starts is enough to get it killed. Two
+    // threads keep most of the speed-up over a single thread at half the cost.
+    context->thread_count = 2;
     context->thread_type = FF_THREAD_FRAME | FF_THREAD_SLICE;
 #endif
 
