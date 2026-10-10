@@ -61,6 +61,7 @@
 #include <dlfcn.h>
 #include <execinfo.h>
 #include <mach/mach.h>
+#include <malloc/malloc.h>
 #include <os/proc.h>
 #include <sys/sysctl.h>
 #include <unistd.h>
@@ -2969,6 +2970,7 @@ int main(int argc, char *argv[]) {
         // Per session, not a function-local static: a static carried the
         // previous title's timestamp into the next launch.
         Uint64 last_mem_log_ms = 0;
+        Uint64 last_relief_ms = 0;
 
         LOG_INFO("iOS guest watchdog started: first snapshot at {}ms", scheduled_dump_at_ms[0]);
 
@@ -3009,6 +3011,16 @@ int main(int argc, char *argv[]) {
                     footprint_mib, guest_used_mib);
                 if (headroom_mib < 500)
                     LOG_INFO("iOS memory by VM tag: {}", vm_region_breakdown());
+                // Memory pressure: ask the allocator to hand freed-but-cached
+                // heap pages back to the OS (host staging buffers, decoder
+                // and container churn). Cheap, safe, and at most every ~10 s.
+                if (headroom_mib < 600 && now_ms - last_relief_ms >= 10000) {
+                    last_relief_ms = now_ms;
+                    const size_t released = malloc_zone_pressure_relief(nullptr, 0);
+                    LOG_INFO("iOS malloc pressure relief released {} MiB; headroom now {} MiB",
+                        static_cast<unsigned long long>(released >> 20),
+                        static_cast<unsigned long long>(os_proc_available_memory() / (1024 * 1024)));
+                }
             }
 
             if (next_scheduled_dump < std::size(scheduled_dump_at_ms)
