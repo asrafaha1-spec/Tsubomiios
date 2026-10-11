@@ -3050,17 +3050,10 @@ int main(int argc, char *argv[]) {
                 next_stall_dump_ms = now_ms + 30000;
             }
 
-            // Retire once the scheduled snapshots are done and the title is
-            // presenting: everything this thread exists to catch happens during
-            // boot. A session is played for hours, and a wake-up every second
-            // for all of it - each one touching the log - is a battery cost
-            // paid for a diagnostic that has already answered its question.
-            if (next_scheduled_dump >= std::size(scheduled_dump_at_ms)
-                && last_setframe_seen != 0
-                && now_ms - last_setframe_change_ms < 8000) {
-                LOG_INFO("iOS guest watchdog retiring: boot diagnostics complete, title is presenting frames");
-                break;
-            }
+            // The watchdog used to retire after the boot snapshots, which also
+            // stopped the memory samples ~3 minutes in - exactly when jetsam
+            // kills happen. It now keeps running (one cheap wake-up per second,
+            // a memory line every 10 s, or every 2 s when headroom is low).
         }
     });
 
