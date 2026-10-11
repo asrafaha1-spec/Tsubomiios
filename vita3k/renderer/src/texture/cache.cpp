@@ -287,6 +287,8 @@ uint16_t get_upload_mip(const uint16_t true_mip, const uint16_t width, const uin
 
 using namespace texture;
 
+std::atomic<int> texture_trim_request{ 0 };
+
 bool TextureCache::init(const bool hashless_texture_cache, const fs::path &texture_folder, std::string_view game_id, const size_t sampler_cache_size) {
     use_protect = hashless_texture_cache;
 
@@ -655,6 +657,28 @@ void TextureCache::cache_and_bind_texture(const SceGxmTexture &gxm_texture, MemS
     TextureCacheInfo *info;
     if (cached_gxm_texture_index == -1) {
         // Texture not found in cache.
+        // Memory-pressure trim (iOS watchdog): drop a few extra least recently
+        // used textures so their GPU images are released. This is the same
+        // eviction the cache already does when full, just done early. It runs
+        // here (renderer thread, texture not yet selected) so no bound slot
+        // can be affected.
+        if (const int trim = texture_trim_request.exchange(0, std::memory_order_relaxed); trim > 0 && !import_textures && !export_textures) {
+            size_t released_bytes = 0;
+            int released = 0;
+            auto *item = texture_queue.head->prev;
+            for (size_t walked = 0; released < trim && walked < TextureCacheSize - 1; walked++) {
+                TextureCacheInfo *victim = &item->content;
+                item = item->prev;
+                if (victim->texture_size == 0)
+                    continue;
+                released_bytes += release_slot(victim->index);
+                texture_lookup.erase(std::bit_cast<TextureGxmDataRepr>(victim->texture));
+                victim->texture_size = 0;
+                released++;
+            }
+            LOG_INFO("iOS memory pressure: released {} cached textures (~{} MiB of GPU images)", released, released_bytes >> 20);
+        }
+
         // get the least recently used texture, which info_list_head points to
         info = texture_queue.get_lru();
         index = info->index;

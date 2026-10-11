@@ -306,6 +306,16 @@ bool VKTextureCache::init(const bool hashless_texture_cache, const fs::path &tex
     return true;
 }
 
+size_t VKTextureCache::release_slot(size_t index) {
+    TextureCacheEntry &entry = textures[index];
+    if (!entry.texture.image)
+        return 0;
+    const size_t bytes = entry.memory_needed;
+    // same deferred destruction the cache uses when it replaces a texture
+    state.frame().destroy_queue.add_image(entry.texture);
+    return bytes;
+}
+
 void VKTextureCache::select(size_t index, const SceGxmTexture &texture) {
     current_texture = &textures[index];
     is_texture_transfer_ready = false;

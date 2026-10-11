@@ -71,6 +71,7 @@ struct VKTextureCache : public TextureCache {
     void configure_texture(const SceGxmTexture &texture) override;
     void upload_texture_impl(SceGxmTextureBaseFormat base_format, uint32_t width, uint32_t height, uint32_t mip_index, const void *pixels, int face, uint32_t pixels_per_stride) override;
     void upload_done() override;
+    size_t release_slot(size_t index) override;
 
     void configure_sampler(size_t index, const SceGxmTexture &texture, bool no_linear) override;
 

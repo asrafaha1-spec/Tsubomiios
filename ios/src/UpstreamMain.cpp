@@ -94,6 +94,11 @@
 #include <thread>
 #include <vector>
 
+// Set by the memory watchdog, consumed by the renderer thread (texture cache).
+namespace renderer {
+extern std::atomic<int> texture_trim_request;
+}
+
 // Backs the optional in-game live log overlay: a small ring buffer fed by a
 // spdlog callback sink (the same mechanism the desktop Qt log widget uses),
 // so the frontend can poll recent lines without touching the log file. Kept
@@ -3024,6 +3029,11 @@ int main(int argc, char *argv[]) {
                     static_cast<unsigned long long>(headroom_mib),
                     headroom_mib < 500 ? " (LOW)" : "",
                     footprint_mib, guest_used_mib);
+                // Ask the renderer to drop its least recently used textures
+                // (consumed on the render thread at its next texture cache
+                // miss). Re-asked every sample while headroom stays low.
+                if (headroom_mib < 450)
+                    renderer::texture_trim_request.store(24, std::memory_order_relaxed);
                 if (headroom_mib < 500)
                     LOG_INFO("iOS memory by VM tag: {}", vm_region_breakdown(reinterpret_cast<uintptr_t>(emuenv->mem.memory.get())));
                 // Memory pressure: ask the allocator to hand freed-but-cached

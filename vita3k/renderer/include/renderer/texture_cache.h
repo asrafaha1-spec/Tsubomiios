@@ -22,6 +22,7 @@
 #include <util/fs.h>
 
 #include <array>
+#include <atomic>
 #include <cstdint>
 #include <memory>
 #include <string_view>
@@ -35,6 +36,12 @@ struct MemState;
 enum SceGxmTextureBaseFormat : uint32_t;
 
 namespace renderer {
+
+// Number of least-recently-used textures the renderer thread should drop at the
+// next cache miss. Set from the iOS memory watchdog when jetsam headroom is low;
+// consumed (reset to 0) on the renderer thread, the only thread that touches
+// the texture cache.
+extern std::atomic<int> texture_trim_request;
 struct YUVConversionCache {
     void *sws_context = nullptr;
     size_t width = 0;
@@ -159,6 +166,10 @@ public:
     virtual void configure_texture(const SceGxmTexture &texture) = 0;
     virtual void upload_texture_impl(SceGxmTextureBaseFormat base_format, uint32_t width, uint32_t height, uint32_t mip_index, const void *pixels, int face, uint32_t pixels_per_stride) = 0;
     virtual void upload_done() {}
+    // Free the GPU image behind a cache slot (deferred until the GPU is done
+    // with it). Returns the approximate bytes released. Used by the iOS memory
+    // pressure trim; backends that cannot do it keep the default.
+    virtual size_t release_slot(size_t index) { return 0; }
 
     virtual void configure_sampler(size_t index, const SceGxmTexture &texture, bool no_linear) {}
 
