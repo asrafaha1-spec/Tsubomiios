@@ -2701,7 +2701,7 @@ bool has_physical_controller(CtrlState &state) {
     });
 }
 
-constexpr std::size_t IOS_JIT_CACHE_SIZE = 16 * 1024 * 1024;
+constexpr std::size_t IOS_JIT_CACHE_SIZE = 8 * 1024 * 1024;
 // Gravity Rush runs ~24 concurrently-live guest threads; exited-but-undeleted
 // threads now release their region when they park dormant, but keep headroom
 // for thread churn (audio/savedata workers) on top of the live set.

@@ -383,9 +383,9 @@ std::unique_ptr<Dynarmic::A32::Jit> DynarmicCPU::make_jit() {
     // Vita3K owns one Dynarmic JIT per guest thread. On iOS 26+, each cache
     // also has a same-sized writable vm_remap alias, so Dynarmic's 128 MiB
     // default scales poorly during middleware worker-thread bursts. Sixteen
-    // MiB remains above Dynarmic's documented approximate 8 MiB minimum; the
+    // MiB was the original size; 8 MiB (Dynarmic's approximate minimum) halves the JIT memory (about 336 MiB measured on iPhone 12) and the
     // backend clears the cache when it approaches capacity.
-    constexpr std::size_t IOS_CODE_CACHE_SIZE = 16 * 1024 * 1024;
+    constexpr std::size_t IOS_CODE_CACHE_SIZE = 8 * 1024 * 1024;
     config.code_cache_size = IOS_CODE_CACHE_SIZE;
 #endif
     config.arch_version = Dynarmic::A32::ArchVersion::v7;
