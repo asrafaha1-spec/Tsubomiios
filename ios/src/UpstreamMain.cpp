@@ -3016,7 +3016,11 @@ int main(int argc, char *argv[]) {
                     footprint_mib = vm_info.phys_footprint / (1024 * 1024);
                 const unsigned long long guest_free_mib = static_cast<unsigned long long>(mem_available(emuenv->mem)) / (1024 * 1024);
                 const unsigned long long guest_used_mib = guest_free_mib <= 4096 ? 4096 - guest_free_mib : 0;
-                LOG_INFO("iOS memory headroom: {} MiB available before jetsam{} | app footprint {} MiB, guest allocated {} MiB",
+                // The sample number keeps every line unique so the log's duplicate
+                // filter never hides the final headroom readings before a kill.
+                static unsigned long long mem_sample_no = 0;
+                LOG_INFO("iOS memory sample #{}: {} MiB available before jetsam{} | app footprint {} MiB, guest allocated {} MiB",
+                    ++mem_sample_no,
                     static_cast<unsigned long long>(headroom_mib),
                     headroom_mib < 500 ? " (LOW)" : "",
                     footprint_mib, guest_used_mib);
