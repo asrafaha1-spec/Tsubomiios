@@ -103,6 +103,16 @@ public:
     uint32_t alignment = 256;
     uint32_t data_offset = 0;
 
+    // Diagnostics: bytes handed out during the current frame, the largest
+    // single frame seen and how many times the cursor wrapped to the start
+    // (a wrap while the GPU still reads older frames corrupts geometry).
+    uint64_t stat_frame_bytes = 0;
+    uint64_t stat_max_frame_bytes = 0;
+    uint32_t stat_wraps = 0;
+    uint32_t get_capacity() const {
+        return capacity;
+    }
+
     explicit RingBuffer(vk::BufferUsageFlags usage, const size_t capacity);
     virtual ~RingBuffer() = default;
     virtual void create() = 0;

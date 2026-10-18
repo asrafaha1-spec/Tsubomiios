@@ -25,6 +25,8 @@
 #include <renderer/functions.h>
 
 #include <util/log.h>
+
+#include <algorithm>
 #include <util/overloaded.h>
 
 namespace renderer::vulkan {
@@ -554,7 +556,42 @@ void VKContext::check_for_macroblock_change(bool is_draw) {
     }
 }
 
+// Every ~5 seconds worth of frames, report how much of each streaming ring
+// buffer a frame uses and whether it wrapped. Three frames are in flight, so a
+// single frame using more than a third of a ring (or any wrap while frames
+// are that large) can overwrite data the GPU is still reading.
+static void log_ring_stats(VKContext &context) {
+    static uint32_t frames_in_window = 0;
+    struct Entry {
+        const char *name;
+        vkutil::HostRingBuffer *ring;
+    };
+    const Entry rings[] = {
+        { "vertex", &context.vertex_stream_ring_buffer },
+        { "index", &context.index_stream_ring_buffer },
+        { "vertex-uniform", &context.vertex_uniform_stream_ring_buffer },
+        { "fragment-uniform", &context.fragment_uniform_stream_ring_buffer },
+    };
+    for (const Entry &e : rings) {
+        e.ring->stat_max_frame_bytes = std::max(e.ring->stat_max_frame_bytes, e.ring->stat_frame_bytes);
+        e.ring->stat_frame_bytes = 0;
+    }
+    if (++frames_in_window < 150)
+        return;
+    frames_in_window = 0;
+    for (const Entry &e : rings) {
+        if (e.ring->stat_wraps > 0 || e.ring->stat_max_frame_bytes > e.ring->get_capacity() / 3) {
+            LOG_INFO("iOS ring buffer {}: largest frame {} KiB of {} KiB capacity, {} wraps in the last 150 frames",
+                e.name, e.ring->stat_max_frame_bytes / 1024, e.ring->get_capacity() / 1024, e.ring->stat_wraps);
+        }
+        e.ring->stat_wraps = 0;
+        e.ring->stat_max_frame_bytes = 0;
+    }
+}
+
 void new_frame(VKContext &context) {
+    log_ring_stats(context);
+
     if (context.state.features.enable_memory_mapping) {
         FrameDoneRequest request = { context.frame_timestamp };
         context.state.request_queue.push(request);
