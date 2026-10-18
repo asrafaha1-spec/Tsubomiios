@@ -78,6 +78,9 @@ struct RenderTarget;
 struct GXMStreamInfo {
     Ptr<const uint8_t> data = Ptr<const uint8_t>(0);
     size_t size = 0;
+    // The stream data starts at vertex `base_vertex` of the guest buffer (only the used
+    // range is copied); the draw then subtracts it with its vertex offset.
+    uint32_t base_vertex = 0;
 };
 
 // We separate the following two parts of the stencil state because the first is part of the pipeline creation

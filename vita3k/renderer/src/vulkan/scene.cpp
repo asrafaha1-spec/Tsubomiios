@@ -250,7 +250,8 @@ static void draw_bind_descriptors(VKContext &context, MemState &mem) {
 }
 
 // vertex count is only used with double buffer mapping
-static void bind_vertex_streams(VKContext &context, MemState &mem, uint32_t instance_count, uint32_t max_index) {
+// returns the vertex offset to give to the draw call (negative or zero)
+static int32_t bind_vertex_streams(VKContext &context, MemState &mem, uint32_t instance_count, uint32_t max_index) {
     GxmRecordState &state = context.record;
     const SceGxmVertexProgram &vertex_program = *state.vertex_program.get(mem);
     VertexProgram *vkvert = vertex_program.renderer_data.get();
@@ -287,7 +288,9 @@ static void bind_vertex_streams(VKContext &context, MemState &mem, uint32_t inst
     }
 
     if (max_stream_idx == 0)
-        return;
+        return 0;
+
+    int32_t vertex_offset = 0;
 
     for (int i = 0; i < max_stream_idx; i++) {
         if (state.vertex_streams[i].data) {
@@ -316,12 +319,17 @@ static void bind_vertex_streams(VKContext &context, MemState &mem, uint32_t inst
 #endif
             }
 
+            if (state.vertex_streams[i].base_vertex != 0)
+                vertex_offset = -static_cast<int32_t>(state.vertex_streams[i].base_vertex);
+
             state.vertex_streams[i].data = nullptr;
             state.vertex_streams[i].size = 0;
+            state.vertex_streams[i].base_vertex = 0;
         }
     }
 
     context.render_cmd.bindVertexBuffers(0, max_stream_idx, context.vertex_stream_buffers, context.vertex_stream_offsets);
+    return vertex_offset;
 }
 
 void draw(VKContext &context, SceGxmPrimitiveType type, SceGxmIndexFormat format,
@@ -500,9 +508,9 @@ void draw(VKContext &context, SceGxmPrimitiveType type, SceGxmIndexFormat format
     }
 
     // bind the vertex streams
-    bind_vertex_streams(context, mem, instance_count, max_index);
+    const int32_t vertex_offset = bind_vertex_streams(context, mem, instance_count, max_index);
 
-    context.render_cmd.drawIndexed(count, instance_count, 0, 0, 0);
+    context.render_cmd.drawIndexed(count, instance_count, 0, vertex_offset, 0);
 
     context.vertex_uniform_storage_allocated = false;
     context.fragment_uniform_storage_allocated = false;

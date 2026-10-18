@@ -2378,25 +2378,38 @@ static int gxmDrawElementGeneral(EmuEnvState &emuenv, const char *export_name, c
     // Update vertex data. We should stores a copy of the data to pass it to GPU later, since another scene
     // may start to overwrite stuff when this scene is being processed in our queue (in case of OpenGL).
     size_t max_index = 0;
+    size_t min_index = 0;
     if (!emuenv.renderer->features.enable_memory_mapping) {
         // we don't need to get the vertex buffer size with memory mapping
         if (indexType == SCE_GXM_INDEX_FORMAT_U16) {
             const uint16_t *const data = static_cast<const uint16_t *>(indices_ptr);
-            max_index = *std::max_element(&data[0], &data[indexCount]);
+            const auto [min_it, max_it] = std::minmax_element(&data[0], &data[indexCount]);
+            max_index = *max_it;
+            min_index = *min_it;
         } else {
             const uint32_t *const data = static_cast<const uint32_t *>(indices_ptr);
-            max_index = *std::max_element(&data[0], &data[indexCount]);
+            const auto [min_it, max_it] = std::minmax_element(&data[0], &data[indexCount]);
+            max_index = *max_it;
+            min_index = *min_it;
         }
+#ifndef __APPLE__
+        // only the Vulkan renderer on Apple platforms applies the matching vertex offset
+        min_index = 0;
+#endif
     }
 
     size_t max_data_length[SCE_GXM_MAX_VERTEX_STREAMS] = {};
+    size_t stream_base_vertex[SCE_GXM_MAX_VERTEX_STREAMS] = {};
     std::uint32_t stream_used = 0;
     for (const SceGxmVertexAttribute &attribute : gxm_vertex_program.attributes) {
         if (!emuenv.renderer->features.enable_memory_mapping) {
             const size_t attribute_size = gxm::attribute_format_size(attribute.format) * attribute.componentCount;
             const SceGxmVertexStream &stream = gxm_vertex_program.streams[attribute.streamIndex];
             const SceGxmIndexSource index_source = static_cast<SceGxmIndexSource>(stream.indexSource);
-            const size_t data_passed_length = gxm::is_stream_instancing(index_source) ? ((instanceCount - 1) * stream.stride) : (max_index * stream.stride);
+            if (!gxm::is_stream_instancing(index_source))
+                stream_base_vertex[attribute.streamIndex] = min_index;
+            // only copy the vertices between the smallest and the largest index used by this draw
+            const size_t data_passed_length = gxm::is_stream_instancing(index_source) ? ((instanceCount - 1) * stream.stride) : ((max_index - min_index) * stream.stride);
             const size_t data_length = attribute.offset + data_passed_length + attribute_size;
             max_data_length[attribute.streamIndex] = std::max<size_t>(max_data_length[attribute.streamIndex], data_length);
         }
@@ -2409,10 +2422,13 @@ static int gxmDrawElementGeneral(EmuEnvState &emuenv, const char *export_name, c
         // Upload it
         if (stream_used & (1 << static_cast<std::uint16_t>(stream_index))) {
             const size_t data_length = max_data_length[stream_index];
-            const Ptr<const void> data = context->state.stream_data[stream_index];
+            Ptr<const void> data = context->state.stream_data[stream_index];
+            const size_t base_vertex = stream_base_vertex[stream_index];
+            if (base_vertex != 0)
+                data = Ptr<const void>(data.address() + static_cast<uint32_t>(base_vertex * gxm_vertex_program.streams[stream_index].stride));
 
             renderer::set_vertex_stream(*emuenv.renderer, context->renderer.get(), stream_index,
-                data_length, data);
+                data_length, data, static_cast<uint32_t>(base_vertex));
         }
     }
 
@@ -2500,15 +2516,24 @@ EXPORT(int, sceGxmDrawPrecomputed, SceGxmContext *context, SceGxmPrecomputedDraw
     // Update vertex data. We should stores a copy of the data to pass it to GPU later, since another scene
     // may start to overwrite stuff when this scene is being processed in our queue (in case of OpenGL).
     uint32_t max_index = 0;
+    uint32_t min_index = 0;
     if (!emuenv.renderer->features.enable_memory_mapping) {
         // we don't need to get the vertex buffer size with memory mapping
         if (draw->index_format == SCE_GXM_INDEX_FORMAT_U16) {
             const uint16_t *const data = draw->index_data.cast<const uint16_t>().get(emuenv.mem);
-            max_index = *std::max_element(&data[0], &data[draw->vertex_count]);
+            const auto [min_it, max_it] = std::minmax_element(&data[0], &data[draw->vertex_count]);
+            max_index = *max_it;
+            min_index = *min_it;
         } else {
             const uint32_t *const data = draw->index_data.cast<const uint32_t>().get(emuenv.mem);
-            max_index = *std::max_element(&data[0], &data[draw->vertex_count]);
+            const auto [min_it, max_it] = std::minmax_element(&data[0], &data[draw->vertex_count]);
+            max_index = *max_it;
+            min_index = *min_it;
         }
+#ifndef __APPLE__
+        // only the Vulkan renderer on Apple platforms applies the matching vertex offset
+        min_index = 0;
+#endif
     }
 
     // set all textures that are used and mark them as dirty
@@ -2529,13 +2554,17 @@ EXPORT(int, sceGxmDrawPrecomputed, SceGxmContext *context, SceGxmPrecomputedDraw
     }
 
     size_t max_data_length[SCE_GXM_MAX_VERTEX_STREAMS] = {};
+    size_t stream_base_vertex[SCE_GXM_MAX_VERTEX_STREAMS] = {};
     std::uint32_t stream_used = 0;
     for (const SceGxmVertexAttribute &attribute : vertex_program->attributes) {
         if (!emuenv.renderer->features.enable_memory_mapping) {
             const size_t attribute_size = gxm::attribute_format_size(attribute.format) * attribute.componentCount;
             const SceGxmVertexStream &stream = vertex_program->streams[attribute.streamIndex];
             const SceGxmIndexSource index_source = static_cast<SceGxmIndexSource>(stream.indexSource);
-            const size_t data_passed_length = gxm::is_stream_instancing(index_source) ? ((draw->instance_count - 1) * stream.stride) : (max_index * stream.stride);
+            if (!gxm::is_stream_instancing(index_source))
+                stream_base_vertex[attribute.streamIndex] = min_index;
+            // only copy the vertices between the smallest and the largest index used by this draw
+            const size_t data_passed_length = gxm::is_stream_instancing(index_source) ? ((draw->instance_count - 1) * stream.stride) : ((max_index - min_index) * stream.stride);
             const size_t data_length = attribute.offset + data_passed_length + attribute_size;
             max_data_length[attribute.streamIndex] = std::max<size_t>(max_data_length[attribute.streamIndex], data_length);
         }
@@ -2549,10 +2578,13 @@ EXPORT(int, sceGxmDrawPrecomputed, SceGxmContext *context, SceGxmPrecomputedDraw
         // Upload it
         if (stream_used & (1 << static_cast<std::uint16_t>(stream_index))) {
             const size_t data_length = max_data_length[stream_index];
-            const Ptr<const void> data = stream_data[stream_index];
+            Ptr<const void> data = stream_data[stream_index];
+            const size_t base_vertex = stream_base_vertex[stream_index];
+            if (base_vertex != 0)
+                data = Ptr<const void>(data.address() + static_cast<uint32_t>(base_vertex * vertex_program->streams[stream_index].stride));
 
             renderer::set_vertex_stream(*emuenv.renderer, context->renderer.get(), stream_index,
-                data_length, data);
+                data_length, data, static_cast<uint32_t>(base_vertex));
         }
     }
 

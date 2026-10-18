@@ -207,8 +207,8 @@ void set_context(State &state, Context *ctx, RenderTarget *target, SceGxmColorSu
     renderer::add_command(ctx, renderer::CommandOpcode::SetContext, nullptr, target, color_surface, depth_stencil_surface);
 }
 
-void set_vertex_stream(State &state, Context *ctx, const std::size_t index, const std::size_t data_len, const Ptr<const void> stream) {
-    renderer::add_state_set_command(ctx, renderer::GXMState::VertexStream, stream, index, data_len);
+void set_vertex_stream(State &state, Context *ctx, const std::size_t index, const std::size_t data_len, const Ptr<const void> stream, const std::uint32_t base_vertex) {
+    renderer::add_state_set_command(ctx, renderer::GXMState::VertexStream, stream, index, data_len, base_vertex);
 }
 
 void draw(State &state, Context *ctx, SceGxmPrimitiveType prim_type, SceGxmIndexFormat index_type, Ptr<const void> index_data, const std::uint32_t index_count, const std::uint32_t instance_count) {
