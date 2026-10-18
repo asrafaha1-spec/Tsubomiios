@@ -44,7 +44,10 @@
 #include <emuenv/state.h>
 #include <io/state.h>
 #include <mem/functions.h>
+#include <dialog/state.h>
+#include <ime/functions.h>
 #include <mem/state.h>
+#include <util/string_utils.h>
 #include <modules/module_parent.h>
 #include <np/trophy/collection.h>
 #include <np/trophy/trp_parser.h>
@@ -71,6 +74,8 @@
 #include <vita3k_ios/VirtualController.h>
 
 #include <algorithm>
+#include <cstdio>
+#include <cstring>
 #include <map>
 #include <functional>
 #include <array>
@@ -129,6 +134,122 @@ namespace {
 // region tag and returns the largest few as text, e.g. "tag 3=812 MiB, ...".
 // Tags are VM_MEMORY_* values from <mach/vm_statistics.h> (1-11 are malloc
 // zones, 0 is untagged mmap such as guest memory / JIT, 30 is stacks, ...).
+// ---- On-screen keyboard bridge ---------------------------------------------
+// Games ask for text (character names, search boxes) through either the IME
+// module (sceImeOpen) or the common IME dialog. Nothing on iOS raised the
+// system keyboard or fed typed text back, so name-entry screens were stuck.
+// This mirrors the Android bridge: show the iOS keyboard while an IME is
+// active and route SDL text/key events into the shared Ime state.
+bool ios_ime_dialog_active(const EmuEnvState &emuenv) {
+    return emuenv.common_dialog.type == IME_DIALOG
+        && emuenv.common_dialog.status == SCE_COMMON_DIALOG_STATUS_RUNNING;
+}
+
+bool ios_any_ime_active(const EmuEnvState &emuenv) {
+    return emuenv.ime.state || ios_ime_dialog_active(emuenv);
+}
+
+void ios_finish_ime_dialog(EmuEnvState &emuenv) {
+    auto &dialog = emuenv.common_dialog;
+    auto &ime = emuenv.ime;
+
+    std::lock_guard<std::recursive_mutex> dialog_lock(dialog.mutex);
+    std::lock_guard<std::mutex> ime_lock(ime.mutex);
+
+    const size_t copy_len = std::min(static_cast<size_t>(ime.str.length()),
+        static_cast<size_t>(dialog.ime.max_length));
+    if (dialog.ime.result) {
+        std::memcpy(dialog.ime.result, ime.str.c_str(), copy_len * sizeof(uint16_t));
+        dialog.ime.result[copy_len] = 0;
+    }
+
+    const std::string utf8 = string_utils::utf16_to_utf8(ime.str);
+    std::snprintf(dialog.ime.text, sizeof(dialog.ime.text), "%s", utf8.c_str());
+    dialog.ime.status = SCE_IME_DIALOG_BUTTON_ENTER;
+    dialog.status = SCE_COMMON_DIALOG_STATUS_FINISHED;
+    dialog.result = SCE_COMMON_DIALOG_RESULT_OK;
+}
+
+void ios_cancel_ime_dialog(EmuEnvState &emuenv) {
+    auto &dialog = emuenv.common_dialog;
+    if (!dialog.ime.cancelable)
+        return;
+
+    std::lock_guard<std::recursive_mutex> dialog_lock(dialog.mutex);
+    dialog.ime.status = SCE_IME_DIALOG_BUTTON_CLOSE;
+    dialog.status = SCE_COMMON_DIALOG_STATUS_FINISHED;
+    dialog.result = SCE_COMMON_DIALOG_RESULT_USER_CANCELED;
+}
+
+bool ios_handle_ime_keydown(EmuEnvState &emuenv, const SDL_KeyboardEvent &event) {
+    if (!ios_any_ime_active(emuenv))
+        return false;
+
+    auto &ime = emuenv.ime;
+    const bool dialog_active = ios_ime_dialog_active(emuenv);
+
+    switch (event.key) {
+    case SDLK_BACKSPACE: {
+        std::lock_guard<std::mutex> lock(ime.mutex);
+        ime_backspace(ime);
+        return true;
+    }
+    case SDLK_RETURN:
+    case SDLK_KP_ENTER:
+        if (dialog_active) {
+            ios_finish_ime_dialog(emuenv);
+        } else {
+            std::lock_guard<std::mutex> lock(ime.mutex);
+            ime.event_id = SCE_IME_EVENT_PRESS_ENTER;
+        }
+        return true;
+    case SDLK_ESCAPE:
+        if (dialog_active) {
+            ios_cancel_ime_dialog(emuenv);
+        } else {
+            std::lock_guard<std::mutex> lock(ime.mutex);
+            ime.event_id = SCE_IME_EVENT_PRESS_CLOSE;
+        }
+        return true;
+    case SDLK_LEFT: {
+        std::lock_guard<std::mutex> lock(ime.mutex);
+        ime_cursor_left(ime);
+        return true;
+    }
+    case SDLK_RIGHT: {
+        std::lock_guard<std::mutex> lock(ime.mutex);
+        ime_cursor_right(ime);
+        return true;
+    }
+    default:
+        return false;
+    }
+}
+
+void ios_handle_ime_text_editing(EmuEnvState &emuenv, const char *text) {
+    if (!ios_any_ime_active(emuenv))
+        return;
+    std::lock_guard<std::mutex> lock(emuenv.ime.mutex);
+    ime_set_preedit(emuenv.ime, string_utils::utf8_to_utf16(text ? text : ""));
+}
+
+void ios_handle_ime_text_input(EmuEnvState &emuenv, const char *text) {
+    if (!ios_any_ime_active(emuenv) || !text || text[0] == '\0')
+        return;
+
+    std::string filtered;
+    filtered.reserve(std::strlen(text));
+    for (const char *ch = text; *ch != '\0'; ++ch) {
+        if (*ch != '\n' && *ch != '\r')
+            filtered.push_back(*ch);
+    }
+    if (filtered.empty())
+        return;
+
+    std::lock_guard<std::mutex> lock(emuenv.ime.mutex);
+    ime_commit_text(emuenv.ime, string_utils::utf8_to_utf16(filtered));
+}
+
 std::string vm_region_breakdown(uintptr_t guest_base) {
     std::map<unsigned, unsigned long long> bytes_by_tag;
     unsigned long long exec_bytes = 0;
@@ -3071,6 +3192,7 @@ int main(int argc, char *argv[]) {
     std::size_t perf_last_frame_count = emuenv->frame_count;
     Uint64 playtime_checkpoint_ms = perf_last_ms;
 
+    bool ios_keyboard_shown = false;
     bool running = true;
     while (running) {
         SDL_Event event;
@@ -3141,6 +3263,18 @@ int main(int argc, char *argv[]) {
                 LOG_INFO("iOS controller refresh: {} connected controller(s)", emuenv->ctrl.controllers_num);
                 break;
 
+            case SDL_EVENT_KEY_DOWN:
+                ios_handle_ime_keydown(*emuenv, event.key);
+                break;
+
+            case SDL_EVENT_TEXT_EDITING:
+                ios_handle_ime_text_editing(*emuenv, event.edit.text);
+                break;
+
+            case SDL_EVENT_TEXT_INPUT:
+                ios_handle_ime_text_input(*emuenv, event.text.text);
+                break;
+
             case SDL_EVENT_GAMEPAD_BUTTON_DOWN:
                 // Vita inputs are polled from SDL by sceCtrl; this breadcrumb
                 // proves the host controller event reached the iOS frontend.
@@ -3156,6 +3290,20 @@ int main(int argc, char *argv[]) {
 
             default:
                 break;
+            }
+        }
+
+        // Raise or hide the iOS keyboard as the game opens or closes a text
+        // prompt. Done once per loop, only on a change.
+        {
+            const bool want_keyboard = ios_any_ime_active(*emuenv);
+            if (want_keyboard != ios_keyboard_shown) {
+                ios_keyboard_shown = want_keyboard;
+                if (want_keyboard)
+                    SDL_StartTextInput(window);
+                else
+                    SDL_StopTextInput(window);
+                LOG_INFO("iOS keyboard {} for game text input", want_keyboard ? "shown" : "hidden");
             }
         }
 
