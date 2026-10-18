@@ -293,6 +293,13 @@ bool VKTextureCache::init(const bool hashless_texture_cache, const fs::path &tex
     // powerVR only
     const vk::FormatProperties pvrt_support = state.physical_device.getFormatProperties(vk::Format::ePvrtc12BppUnormBlockIMG);
     support_pvrt = static_cast<bool>(pvrt_support.optimalTilingFeatures & vk::FormatFeatureFlagBits::eSampledImage);
+#if defined(VITA3K_PLATFORM_IOS)
+    // MoltenVK reports PVRTC support on Apple GPUs, but the native upload path
+    // (written for PowerVR GPUs on Android) renders Vita PVRT textures as
+    // green noise and later hangs the GPU (ErrorDeviceLost) in Ragnarok
+    // Odyssey ACE. Decode PVRT in software like every non-PowerVR device.
+    support_pvrt = false;
+#endif
 
     // check for dxt support
     const vk::FormatProperties dxt_support = state.physical_device.getFormatProperties(vk::Format::eBc1RgbaSrgbBlock);
