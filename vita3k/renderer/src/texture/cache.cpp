@@ -337,6 +337,20 @@ void TextureCache::upload_texture(const SceGxmTexture &gxm_texture, MemState &me
     uint32_t width = gxm::get_width(gxm_texture);
     uint32_t height = gxm::get_height(gxm_texture);
 
+#ifdef VITA3K_PLATFORM_IOS
+    {
+        // One log line per distinct texture format/layout the game uploads, to
+        // tell which formats a game with wrong colours depends on.
+        static unordered_set_fast<uint32_t> seen_texture_kinds;
+        const uint32_t kind = (static_cast<uint32_t>(base_format) << 16) | (static_cast<uint32_t>(gxm_texture.texture_type()) >> 24);
+        if (seen_texture_kinds.insert(kind).second) {
+            LOG_INFO("iOS texture format census: base_format=0x{:X} type=0x{:X} first size={}x{} swizzle_mode=0x{:X} gamma={}",
+                static_cast<uint32_t>(base_format), static_cast<uint32_t>(gxm_texture.texture_type()), width, height,
+                static_cast<uint32_t>(fmt) & 0xF000u, static_cast<uint32_t>(gxm_texture.gamma_mode));
+        }
+    }
+#endif
+
     const Ptr<uint8_t> data(gxm_texture.data_addr << 2);
     uint8_t *texture_data = data.get(mem);
 
