@@ -42,7 +42,10 @@ if(VITA3K_BUILD_IOS_UPSTREAM_CORE)
         PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
     set_source_files_properties(${VITA3K_IOS_CUELUME_LICENSE}
         PROPERTIES MACOSX_PACKAGE_LOCATION "Resources/Licenses")
-    target_include_directories(Vita3KiOS PRIVATE include)
+    target_include_directories(Vita3KiOS PRIVATE include
+        # keyboard bridge in UpstreamMain.cpp uses the IME and common-dialog state
+        "${CMAKE_SOURCE_DIR}/vita3k/dialog/include"
+        "${CMAKE_SOURCE_DIR}/vita3k/ime/include")
     target_compile_features(Vita3KiOS PRIVATE cxx_std_23)
     # -Wall/-Wextra are C-family flags; passing them to swiftc is an error, so
     # scope them to the languages that understand them.
@@ -72,6 +75,8 @@ if(VITA3K_BUILD_IOS_UPSTREAM_CORE)
     target_link_libraries(Vita3KiOS PRIVATE
         vita3k
         audio
+        dialog
+        ime
         io
         miniz
         np
