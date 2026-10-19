@@ -1,0 +1,15 @@
+markdown 
+
+#Tsubomioss
+
+> PS VITA 3K emulator with IOS 16 compatibility, primarily written in C+,
+
+# Core Documentation
+
+- [Architecture Setup](docs.architecture.md):
+- [API Reference] (docs/api.md):
+
+## Important Code Files
+
+- [Main Entrypoint] (src/main.py):
+- [Authentication Middleware](src/auth.py):
