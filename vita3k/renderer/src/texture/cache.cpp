@@ -33,6 +33,10 @@
 #else
 #define XXH_INLINE_ALL
 #include <xxhash.h>
+
+#ifdef VITA3K_PLATFORM_IOS
+#include <stb_image_write.h>
+#endif
 #endif
 
 namespace renderer {
@@ -556,6 +560,49 @@ void TextureCache::upload_texture(const SceGxmTexture &gxm_texture, MemState &me
         default:
             break;
         }
+
+#ifdef VITA3K_PLATFORM_IOS
+        // Diagnostic: save a few decoded palette/PVRT/YUV textures as PNG files so
+        // the result can be inspected from the Files app (wrong colours).
+        if (upload_format == SCE_GXM_TEXTURE_BASE_FORMAT_U8U8U8U8 && !texture_data_decompressed.empty()
+            && pixels == texture_data_decompressed.data() && base_format != SCE_GXM_TEXTURE_BASE_FORMAT_U8U8U8U8) {
+            static unordered_map_fast<uint32_t, int> dumped_per_format;
+            static int dumped_total = 0;
+            int &count = dumped_per_format[static_cast<uint32_t>(base_format)];
+            if (count < 4 && dumped_total < 24) {
+                count++;
+                dumped_total++;
+                const fs::path dir = export_folder / "debug";
+                std::error_code ec;
+                fs::create_directories(dir, ec);
+                const std::string name = fmt::format("decoded_{:08X}_{}_{}x{}.png", static_cast<uint32_t>(base_format), count, pixels_per_stride, memory_height);
+                const int ok = stbi_write_png((dir / name).string().c_str(), static_cast<int>(pixels_per_stride), static_cast<int>(memory_height), 4,
+                    texture_data_decompressed.data(), static_cast<int>(pixels_per_stride * 4));
+                LOG_INFO("iOS texture debug dump: {} ({})", (dir / name).string(), ok ? "ok" : "failed");
+            }
+        }
+#endif
+
+#ifdef VITA3K_PLATFORM_IOS
+        // Diagnostic: average colour of each texture kind after the CPU decode
+        // (PVRT / palette). If these are already green the decoder is at fault,
+        // if they look sane the problem is later (upload, swizzle or shader).
+        if (!texture_data_decompressed.empty() && bytes_per_pixel == 4 && pixels == texture_data_decompressed.data()) {
+            static unordered_set_fast<uint64_t> seen_decoded_kinds;
+            const uint64_t decoded_kind = (static_cast<uint64_t>(static_cast<uint32_t>(base_format)) << 32) | static_cast<uint64_t>(is_swizzled);
+            if (seen_decoded_kinds.insert(decoded_kind).second) {
+                const size_t pixel_count = std::min<size_t>(texture_data_decompressed.size() / 4, static_cast<size_t>(pixels_per_stride) * memory_height);
+                uint64_t sum[4] = {};
+                for (size_t i = 0; i < pixel_count; i++)
+                    for (int c = 0; c < 4; c++)
+                        sum[c] += texture_data_decompressed[i * 4 + c];
+                const uint64_t n = std::max<size_t>(pixel_count, 1);
+                LOG_INFO("iOS decoded texture colours: base_format=0x{:X} swizzled={} {}x{} avg bytes [0..3]={},{},{},{}",
+                    static_cast<uint32_t>(base_format), is_swizzled, pixels_per_stride, memory_height,
+                    sum[0] / n, sum[1] / n, sum[2] / n, sum[3] / n);
+            }
+        }
+#endif
 
         if (texture_type != SCE_GXM_TEXTURE_LINEAR && texture_type != SCE_GXM_TEXTURE_LINEAR_STRIDED && !gxm::is_pvrt_format(base_format)) {
             // Convert data to linear layout
