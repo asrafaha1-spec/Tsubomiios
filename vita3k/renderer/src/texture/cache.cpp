@@ -341,8 +341,8 @@ void TextureCache::upload_texture(const SceGxmTexture &gxm_texture, MemState &me
     {
         // One log line per distinct texture format/layout the game uploads, to
         // tell which formats a game with wrong colours depends on.
-        static unordered_set_fast<uint32_t> seen_texture_kinds;
-        const uint32_t kind = (static_cast<uint32_t>(base_format) << 16) | (static_cast<uint32_t>(gxm_texture.texture_type()) >> 24);
+        static unordered_set_fast<uint64_t> seen_texture_kinds;
+        const uint64_t kind = (static_cast<uint64_t>(static_cast<uint32_t>(base_format)) << 32) | static_cast<uint64_t>(static_cast<uint32_t>(gxm_texture.texture_type()));
         if (seen_texture_kinds.insert(kind).second) {
             LOG_INFO("iOS texture format census: base_format=0x{:X} type=0x{:X} first size={}x{} swizzle_mode=0x{:X} gamma={}",
                 static_cast<uint32_t>(base_format), static_cast<uint32_t>(gxm_texture.texture_type()), width, height,
