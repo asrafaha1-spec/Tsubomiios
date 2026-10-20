@@ -33,10 +33,6 @@
 #else
 #define XXH_INLINE_ALL
 #include <xxhash.h>
-
-#ifdef VITA3K_PLATFORM_IOS
-#include <stb_image_write.h>
-#endif
 #endif
 
 namespace renderer {
@@ -560,28 +556,6 @@ void TextureCache::upload_texture(const SceGxmTexture &gxm_texture, MemState &me
         default:
             break;
         }
-
-#ifdef VITA3K_PLATFORM_IOS
-        // Diagnostic: save a few decoded palette/PVRT/YUV textures as PNG files so
-        // the result can be inspected from the Files app (wrong colours).
-        if (upload_format == SCE_GXM_TEXTURE_BASE_FORMAT_U8U8U8U8 && !texture_data_decompressed.empty()
-            && pixels == texture_data_decompressed.data() && base_format != SCE_GXM_TEXTURE_BASE_FORMAT_U8U8U8U8) {
-            static unordered_map_fast<uint32_t, int> dumped_per_format;
-            static int dumped_total = 0;
-            int &count = dumped_per_format[static_cast<uint32_t>(base_format)];
-            if (count < 4 && dumped_total < 24) {
-                count++;
-                dumped_total++;
-                const fs::path dir = export_folder / "debug";
-                std::error_code ec;
-                fs::create_directories(dir, ec);
-                const std::string name = fmt::format("decoded_{:08X}_{}_{}x{}.png", static_cast<uint32_t>(base_format), count, pixels_per_stride, memory_height);
-                const int ok = stbi_write_png((dir / name).string().c_str(), static_cast<int>(pixels_per_stride), static_cast<int>(memory_height), 4,
-                    texture_data_decompressed.data(), static_cast<int>(pixels_per_stride * 4));
-                LOG_INFO("iOS texture debug dump: {} ({})", (dir / name).string(), ok ? "ok" : "failed");
-            }
-        }
-#endif
 
 #ifdef VITA3K_PLATFORM_IOS
         // Diagnostic: average colour of each texture kind after the CPU decode
