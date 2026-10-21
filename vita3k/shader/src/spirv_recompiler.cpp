@@ -1501,6 +1501,24 @@ static spv::Function *make_frag_finalize_function(spv::Builder &b, const SpirvSh
     if (!is_float_data_type(color_val_operand.type))
         color = utils::convert_to_float(b, utils, color, color_val_operand.type, true);
 
+    // Some games (Ragnarok Odyssey HDR buffer) render into an F16F16F16F16 surface but their shader
+    // outputs two raw 32-bit words, each holding two packed halves (the hardware just stores those 64 bits).
+    // Converting these words as if they were floats destroys the data, so unpack the halves instead.
+    if (gxm::get_base_format(translate_state.hints->color_format) == SCE_GXM_COLOR_BASE_FORMAT_F16F16F16F16
+        && color_val_operand.type == DataType::F32) {
+        const spv::Id f32_type = b.makeFloatType(32);
+        const spv::Id u32_type = b.makeUintType(32);
+        const spv::Id v2_type = b.makeVectorType(f32_type, 2);
+        const spv::Id v4_type = b.makeVectorType(f32_type, 4);
+        spv::Id halves[2];
+        for (int i = 0; i < 2; i++) {
+            const spv::Id word = b.createCompositeExtract(color, f32_type, i);
+            const spv::Id bits = b.createUnaryOp(spv::OpBitcast, u32_type, word);
+            halves[i] = b.createBuiltinCall(v2_type, utils.std_builtins, GLSLstd450UnpackHalf2x16, { bits });
+        }
+        color = b.createOp(spv::OpVectorShuffle, v4_type, { { true, halves[0] }, { true, halves[1] }, { false, 0 }, { false, 1 }, { false, 2 }, { false, 3 } });
+    }
+
     if (program.is_frag_color_used() && features.should_use_shader_interlock()) {
         spv::Id signed_i32 = b.makeIntType(32);
         spv::Id coord_id = b.createLoad(translate_state.frag_coord_id, spv::NoPrecision);
