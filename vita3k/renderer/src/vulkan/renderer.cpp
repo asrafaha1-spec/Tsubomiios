@@ -474,6 +474,11 @@ bool VKState::create(std::unique_ptr<renderer::State> &state, const Config &conf
 #ifdef __APPLE__
         const VkBool32 full_image_swizzle = VK_TRUE;
         const VkBool32 resume_lost_device = VK_TRUE;
+#ifdef VITA3K_PLATFORM_IOS
+        // Metal fast-math assumes no Inf/NaN, which breaks Vita shaders that rely on them
+        // (Ragnarok Odyssey HDR buffer is full of Inf/NaN). 0 = never use fast math.
+        const int32_t fast_math = 0;
+#endif
 #ifndef NDEBUG
         const VkBool32 debug = VK_TRUE;
         const int32_t log_level = 4;
@@ -483,6 +488,9 @@ bool VKState::create(std::unique_ptr<renderer::State> &state, const Config &conf
                 &full_image_swizzle },
             { kMVKMoltenVKDriverLayerName, "MVK_CONFIG_RESUME_LOST_DEVICE", vk::LayerSettingTypeEXT::eBool32, 1,
                 &resume_lost_device },
+#ifdef VITA3K_PLATFORM_IOS
+            { kMVKMoltenVKDriverLayerName, "MVK_CONFIG_FAST_MATH_ENABLED", vk::LayerSettingTypeEXT::eInt32, 1, &fast_math },
+#endif
 #ifndef NDEBUG
             { kMVKMoltenVKDriverLayerName, "MVK_CONFIG_DEBUG", vk::LayerSettingTypeEXT::eBool32, 1, &debug },
             { kMVKMoltenVKDriverLayerName, "MVK_CONFIG_LOG_LEVEL", vk::LayerSettingTypeEXT::eInt32, 1, &log_level },
