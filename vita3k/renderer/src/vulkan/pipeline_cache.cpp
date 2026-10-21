@@ -517,6 +517,26 @@ vk::PipelineShaderStageCreateInfo PipelineCache::retrieve_shader(const SceGxmPro
 
     shader::usse::SpirvCode source = load_spirv_shader(*program, state.features, true, hints, maskupdate, state.shaders_path, state.shaders_log_path, shader_version, true);
 
+#ifdef VITA3K_PLATFORM_IOS
+    // MoltenVK turns RelaxedPrecision into Metal 'half' maths, which corrupts the colours of
+    // some games (Ragnarok Odyssey renders green). Strip the decorations: full precision.
+    {
+        size_t i = 5; // skip the SPIR-V header
+        while (i < source.size()) {
+            const uint32_t word = source[i];
+            const uint32_t len = word >> 16;
+            const uint32_t op = word & 0xFFFF;
+            if (len == 0)
+                break;
+            if ((op == 71 && len >= 3 && source[i + 2] == 0) || (op == 72 && len >= 4 && source[i + 3] == 0)) {
+                for (uint32_t k = 0; k < len; k++)
+                    source[i + k] = 0x00010000; // OpNop
+            }
+            i += len;
+        }
+    }
+#endif
+
     vk::ShaderModuleCreateInfo shader_info{
         .codeSize = sizeof(uint32_t) * source.size(),
         .pCode = source.data()
