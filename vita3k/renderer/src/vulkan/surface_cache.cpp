@@ -1584,6 +1584,25 @@ void VKSurfaceCache::perform_post_surface_sync(const MemState &mem, ColorSurface
                             }
                         }
                     }
+                    if (ch_f16) {
+                        // class histogram per channel: zero / finite / inf / nan, plus raw centre pixels
+                        size_t cls[4][4] = {};
+                        for (size_t px = 0; px < pixel_total; px += pixel_step) {
+                            const uint8_t *p = bytes + px * bytes_per_pixel;
+                            for (int c = 0; c < 4; c++) {
+                                const uint16_t h = static_cast<uint16_t>(p[c * 2] | (p[c * 2 + 1] << 8));
+                                const int e = (h >> 10) & 0x1F;
+                                const int m = h & 0x3FF;
+                                cls[c][(h & 0x7FFF) == 0 ? 0 : (e == 31 ? (m ? 3 : 2) : 1)]++;
+                            }
+                        }
+                        const size_t mid = pixel_total / 2 + 480;
+                        const uint8_t *q = bytes + mid * bytes_per_pixel;
+                        LOG_INFO("iOS f16 classes (zero/finite/inf/nan) R={}/{}/{}/{} G={}/{}/{}/{} B={}/{}/{}/{} A={}/{}/{}/{} | centre px raw={:02X}{:02X} {:02X}{:02X} {:02X}{:02X} {:02X}{:02X}",
+                            cls[0][0], cls[0][1], cls[0][2], cls[0][3], cls[1][0], cls[1][1], cls[1][2], cls[1][3],
+                            cls[2][0], cls[2][1], cls[2][2], cls[2][3], cls[3][0], cls[3][1], cls[3][2], cls[3][3],
+                            q[1], q[0], q[3], q[2], q[5], q[4], q[7], q[6]);
+                    }
                     const double n = std::max<size_t>(pixels_sampled, 1);
                     LOG_INFO("iOS surface-sync channels: addr=0x{:08X} fmt={} avg RGBA(memory order)={:.3f},{:.3f},{:.3f},{:.3f}",
                         surface->data.address(), vk::to_string(ch_format),
