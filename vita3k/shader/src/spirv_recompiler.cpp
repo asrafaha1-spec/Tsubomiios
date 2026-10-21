@@ -1472,6 +1472,15 @@ static spv::Function *make_frag_finalize_function(spv::Builder &b, const SpirvSh
             color_val_operand.type = DataType::F32;
     }
 
+#ifdef VITA3K_PLATFORM_IOS
+    if (gxm::get_base_format(translate_state.hints->color_format) == SCE_GXM_COLOR_BASE_FORMAT_F16F16F16F16) {
+        static int logged_f16_outputs = 0;
+        if (logged_f16_outputs++ < 60)
+            LOG_INFO("iOS F16 surface fragment shader {}: output_param_type={} native_color={} output_comp_count={} output_param_type_flag={}",
+                translate_state.hash.c_str(), static_cast<int>(param_type), program.is_native_color(), vertex_varyings_ptr->output_comp_count, vertex_varyings_ptr->output_param_type);
+    }
+#endif
+
     spv::Decoration precision = get_data_type_size(color_val_operand.type) < 4 ? spv::DecorationRelaxedPrecision : spv::NoPrecision;
     if (color_val_operand.type == DataType::INT16 || color_val_operand.type == DataType::UINT16)
         // a F16 cannot hold a INT16 or UINT16

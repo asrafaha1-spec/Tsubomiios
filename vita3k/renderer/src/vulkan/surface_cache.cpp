@@ -1598,6 +1598,18 @@ void VKSurfaceCache::perform_post_surface_sync(const MemState &mem, ColorSurface
                         }
                         const size_t mid = pixel_total / 2 + 480;
                         const uint8_t *q = bytes + mid * bytes_per_pixel;
+                        {
+                            std::string words;
+                            for (int r = 0; r < 3; r++) {
+                                const size_t base_px = pixel_total * (r + 1) / 4;
+                                words += fmt::format(" row{}:", r);
+                                for (int k = 0; k < 6; k++) {
+                                    const uint8_t *w = bytes + (base_px + k) * bytes_per_pixel;
+                                    words += fmt::format(" {:02X}{:02X}{:02X}{:02X}_{:02X}{:02X}{:02X}{:02X}", w[3], w[2], w[1], w[0], w[7], w[6], w[5], w[4]);
+                                }
+                            }
+                            LOG_INFO("iOS f16 raw 32-bit words per pixel (word1_word0):{}", words);
+                        }
                         LOG_INFO("iOS f16 classes (zero/finite/inf/nan) R={}/{}/{}/{} G={}/{}/{}/{} B={}/{}/{}/{} A={}/{}/{}/{} | centre px raw={:02X}{:02X} {:02X}{:02X} {:02X}{:02X} {:02X}{:02X}",
                             cls[0][0], cls[0][1], cls[0][2], cls[0][3], cls[1][0], cls[1][1], cls[1][2], cls[1][3],
                             cls[2][0], cls[2][1], cls[2][2], cls[2][3], cls[3][0], cls[3][1], cls[3][2], cls[3][3],
