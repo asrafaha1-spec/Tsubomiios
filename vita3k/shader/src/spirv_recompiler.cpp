@@ -1477,7 +1477,7 @@ static spv::Function *make_frag_finalize_function(spv::Builder &b, const SpirvSh
         static int logged_f16_outputs = 0;
         if (logged_f16_outputs++ < 60)
             LOG_INFO("iOS F16 surface fragment shader {}: output_param_type={} native_color={} output_comp_count={} output_param_type_flag={}",
-                translate_state.hash.c_str(), static_cast<int>(param_type), program.is_native_color(), vertex_varyings_ptr->output_comp_count, vertex_varyings_ptr->output_param_type);
+                translate_state.hash.c_str(), static_cast<int>(param_type), program.is_native_color(), static_cast<int>(vertex_varyings_ptr->output_comp_count), static_cast<int>(vertex_varyings_ptr->output_param_type));
     }
 #endif
 
