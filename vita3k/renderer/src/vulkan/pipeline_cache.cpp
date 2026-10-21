@@ -32,6 +32,8 @@
 #include <SDL3/SDL_cpuinfo.h>
 
 #include <algorithm>
+#include <atomic>
+#include <string_view>
 
 // don't use the dispatch version, because we always hash a small amount
 // with a known size
@@ -516,6 +518,37 @@ vk::PipelineShaderStageCreateInfo PipelineCache::retrieve_shader(const SceGxmPro
     const std::string shader_version = fmt::format("vk{}", shader::CURRENT_VERSION);
 
     shader::usse::SpirvCode source = load_spirv_shader(*program, state.features, true, hints, maskupdate, state.shaders_path, state.shaders_log_path, shader_version, true);
+
+#ifdef VITA3K_PLATFORM_IOS
+    // Diagnostic for Ragnarok Odyssey: dump (into the log) fragment shaders that sample an F32F32
+    // texture (the HDR buffer read back as raw bits) or that render to an F16 target.
+    if (!is_vertex) {
+        static std::atomic<int> dumped{ 0 };
+        bool sampled_f32f32 = false;
+        for (int t = 0; t < SCE_GXM_MAX_TEXTURE_UNITS; t++)
+            if (gxm::get_base_format(hints.fragment_textures[t]) == SCE_GXM_TEXTURE_BASE_FORMAT_F32F32)
+                sampled_f32f32 = true;
+        const bool writes_f16 = gxm::get_base_format(hints.color_format) == SCE_GXM_COLOR_BASE_FORMAT_F16F16F16F16;
+        if ((sampled_f32f32 || writes_f16) && dumped.load() < 6) {
+            dumped++;
+            std::string text;
+            shader::spirv_disasm_print(source, &text);
+            LOG_INFO("iOS shader dump {} (sampled_f32f32={} writes_f16={}) tex formats: {:08X} {:08X} {:08X} {:08X}", hash_text, sampled_f32f32, writes_f16,
+                static_cast<uint32_t>(hints.fragment_textures[0]), static_cast<uint32_t>(hints.fragment_textures[1]),
+                static_cast<uint32_t>(hints.fragment_textures[2]), static_cast<uint32_t>(hints.fragment_textures[3]));
+            size_t pos = 0;
+            int lines = 0;
+            while (pos < text.size() && lines < 700) {
+                size_t end = text.find('\n', pos);
+                if (end == std::string::npos)
+                    end = text.size();
+                LOG_INFO("SPV {} {}", hash_text.substr(0, 8), std::string_view(text).substr(pos, end - pos));
+                pos = end + 1;
+                lines++;
+            }
+        }
+    }
+#endif
 
     vk::ShaderModuleCreateInfo shader_info{
         .codeSize = sizeof(uint32_t) * source.size(),
