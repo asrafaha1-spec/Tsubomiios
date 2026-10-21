@@ -31,6 +31,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <map>
 
@@ -1527,6 +1528,41 @@ void VKSurfaceCache::perform_post_surface_sync(const MemState &mem, ColorSurface
                     static_cast<int>(surface->tiling),
                     sampled ? static_cast<double>(sum) / sampled : 0.0, lo, hi,
                     sampled ? static_cast<int>(nonzero * 100 / sampled) : 0);
+
+                // Per-channel averages, to see which stage first turns the
+                // picture green (HDR scene buffer, bloom, or final output).
+                const vk::Format ch_format = surface->texture.format;
+                const bool ch_u8 = ch_format == vk::Format::eR8G8B8A8Unorm || ch_format == vk::Format::eB8G8R8A8Unorm;
+                const bool ch_f16 = ch_format == vk::Format::eR16G16B16A16Sfloat;
+                if ((ch_u8 || ch_f16) && byte_count >= 16) {
+                    const size_t bytes_per_pixel = ch_f16 ? 8 : 4;
+                    const size_t pixel_total = byte_count / bytes_per_pixel;
+                    const size_t pixel_step = std::max<size_t>(1, pixel_total / 4096);
+                    double channel_sum[4] = {};
+                    size_t pixels_sampled = 0;
+                    for (size_t px = 0; px < pixel_total; px += pixel_step, ++pixels_sampled) {
+                        const uint8_t *p = bytes + px * bytes_per_pixel;
+                        for (int c = 0; c < 4; c++) {
+                            if (ch_u8) {
+                                channel_sum[c] += p[c];
+                            } else {
+                                // half float to float
+                                const uint16_t h = static_cast<uint16_t>(p[c * 2] | (p[c * 2 + 1] << 8));
+                                const int exponent = (h >> 10) & 0x1F;
+                                const double mantissa = h & 0x3FF;
+                                double value = exponent == 0 ? mantissa / 1024.0 * 6.103515625e-5
+                                    : (exponent == 31 ? 0.0 : (1.0 + mantissa / 1024.0) * std::ldexp(1.0, exponent - 15));
+                                if (h & 0x8000)
+                                    value = -value;
+                                channel_sum[c] += value;
+                            }
+                        }
+                    }
+                    const double n = std::max<size_t>(pixels_sampled, 1);
+                    LOG_INFO("iOS surface-sync channels: addr=0x{:08X} fmt={} avg RGBA(memory order)={:.3f},{:.3f},{:.3f},{:.3f}",
+                        surface->data.address(), vk::to_string(ch_format),
+                        channel_sum[0] / n, channel_sum[1] / n, channel_sum[2] / n, channel_sum[3] / n);
+                }
             }
         }
 #endif
