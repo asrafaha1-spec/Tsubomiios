@@ -32,6 +32,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <set>
 #include <cstdint>
 #include <map>
 
@@ -493,6 +494,21 @@ std::optional<TextureLookupResult> VKSurfaceCache::retrieve_color_surface_as_tex
 
     const vk::ComponentMapping swizzle = texture::translate_swizzle(gxm::get_format(texture));
     vk::Format vk_format = color::translate_format(base_format);
+
+#ifdef VITA3K_PLATFORM_IOS
+    {
+        static std::set<uint64_t> logged_combos;
+        const auto &sw = swizzle;
+        const uint64_t key = (uint64_t(address) << 20) ^ (uint64_t(base_format) << 12) ^ (uint64_t(sw.r) << 9) ^ (uint64_t(sw.g) << 6) ^ (uint64_t(sw.b) << 3) ^ uint64_t(sw.a) ^ (uint64_t(gxm::get_format(texture)) << 40);
+        if (logged_combos.insert(key).second && logged_combos.size() < 200) {
+            LOG_INFO("iOS surface-as-texture: tex addr=0x{:08X} {}x{} gxm_format=0x{:X} sampled_base_format={} vk_format={} swizzle(rgba)={}{}{}{} | surface addr=0x{:08X} fmt={} surface_swizzle(rgba)={}{}{}{}",
+                address, original_width, original_height, static_cast<uint32_t>(gxm::get_format(texture)), static_cast<uint32_t>(base_format), vk::to_string(vk_format),
+                static_cast<int>(sw.r), static_cast<int>(sw.g), static_cast<int>(sw.b), static_cast<int>(sw.a),
+                ite->first, vk::to_string(ite->second->texture.format),
+                static_cast<int>(ite->second->swizzle.r), static_cast<int>(ite->second->swizzle.g), static_cast<int>(ite->second->swizzle.b), static_cast<int>(ite->second->swizzle.a));
+        }
+    }
+#endif
 
     const bool is_srgb = texture.gamma_mode != 0;
     if (is_srgb) {
