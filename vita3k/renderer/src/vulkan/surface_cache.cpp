@@ -712,7 +712,17 @@ std::optional<TextureLookupResult> VKSurfaceCache::retrieve_color_surface_as_tex
                 clear_color, vkutil::color_subresource_range);
         }
 
-        if (bytes_per_pixel_requested == bytes_per_pixel_in_store) {
+#ifdef VITA3K_PLATFORM_IOS
+        // MoltenVK's image-to-image copy between different formats of the same texel size
+        // (e.g. F16F16F16F16 surface read as F32F32 by Ragnarok Odyssey) converts the values
+        // instead of copying the raw bits, which makes the post-process decode wrong (green scene).
+        // Go through a buffer so the bits are preserved.
+        const bool ios_bitwise_copy_needed = vk::componentBits(info.texture.format, 0) != vk::componentBits(vk_format, 0)
+            || vk::componentCount(info.texture.format) != vk::componentCount(vk_format);
+#else
+        const bool ios_bitwise_copy_needed = false;
+#endif
+        if (bytes_per_pixel_requested == bytes_per_pixel_in_store && !ios_bitwise_copy_needed) {
             const uint32_t copy_width = std::min(width, info.width - start_x);
             const uint32_t copy_height = std::min(height, info.height - start_sourced_line);
             vk::ImageCopy image_copy{
