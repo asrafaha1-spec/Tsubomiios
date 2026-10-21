@@ -32,6 +32,8 @@
 #include <SDL3/SDL_cpuinfo.h>
 
 #include <algorithm>
+#include <mutex>
+#include <set>
 #include <atomic>
 #include <string_view>
 
@@ -479,6 +481,49 @@ vk::PipelineShaderStageCreateInfo PipelineCache::retrieve_shader(const SceGxmPro
     }
 
     vk::ShaderModule *shader_module;
+#ifdef VITA3K_PLATFORM_IOS
+    // Diagnostic for Ragnarok Odyssey: dump (into the log) the fragment shaders that read an
+    // F32F32/U32U32 texture (the HDR buffer read back as raw bits) and the ones that render
+    // into an F16 target. Works from the on-disk shader cache too.
+    if (!is_vertex) {
+        static std::mutex dump_mutex;
+        static std::set<std::string> dumped_hashes;
+        static int dumped_readers = 0, dumped_writers = 0;
+        bool reader = false;
+        for (int t = 0; t < SCE_GXM_MAX_TEXTURE_UNITS; t++) {
+            const auto bf = gxm::get_base_format(hints.fragment_textures[t]);
+            if (bf == SCE_GXM_TEXTURE_BASE_FORMAT_U32U32 || bf == SCE_GXM_TEXTURE_BASE_FORMAT_F32F32)
+                reader = true;
+        }
+        const bool writer = gxm::get_base_format(hints.color_format) == SCE_GXM_COLOR_BASE_FORMAT_F16F16F16F16;
+        const std::string dump_hash = hex_string(hash);
+        std::lock_guard<std::mutex> dump_guard(dump_mutex);
+        if ((reader || writer) && !dumped_hashes.count(dump_hash) && dumped_readers < 5 && dumped_writers < 5) {
+            const std::string file_name = fmt::format("vk{}-{}.spv", shader::CURRENT_VERSION, dump_hash);
+            const std::vector<uint32_t> spv = renderer::pre_load_shader_spirv(state.shaders_path / file_name);
+            if (!spv.empty()) {
+                dumped_hashes.insert(dump_hash);
+                (reader ? dumped_readers : dumped_writers)++;
+                std::string text;
+                shader::spirv_disasm_print(spv, &text);
+                LOG_INFO("iOS shader dump {} reader={} writer={} tex formats: {:08X} {:08X} {:08X} {:08X}", dump_hash.substr(0, 8), reader, writer,
+                    static_cast<uint32_t>(hints.fragment_textures[0]), static_cast<uint32_t>(hints.fragment_textures[1]),
+                    static_cast<uint32_t>(hints.fragment_textures[2]), static_cast<uint32_t>(hints.fragment_textures[3]));
+                size_t pos = 0;
+                int lines = 0;
+                while (pos < text.size() && lines < 800) {
+                    size_t end = text.find('\n', pos);
+                    if (end == std::string::npos)
+                        end = text.size();
+                    LOG_INFO("SPV {} {}", dump_hash.substr(0, 8), std::string_view(text).substr(pos, end - pos));
+                    pos = end + 1;
+                    lines++;
+                }
+            }
+        }
+    }
+#endif
+
     {
         // look if it is in the cache
         std::unique_lock<std::mutex> lock(shaders_mutex);
@@ -519,36 +564,6 @@ vk::PipelineShaderStageCreateInfo PipelineCache::retrieve_shader(const SceGxmPro
 
     shader::usse::SpirvCode source = load_spirv_shader(*program, state.features, true, hints, maskupdate, state.shaders_path, state.shaders_log_path, shader_version, true);
 
-#ifdef VITA3K_PLATFORM_IOS
-    // Diagnostic for Ragnarok Odyssey: dump (into the log) fragment shaders that sample an F32F32
-    // texture (the HDR buffer read back as raw bits) or that render to an F16 target.
-    if (!is_vertex) {
-        static std::atomic<int> dumped{ 0 };
-        bool sampled_f32f32 = false;
-        for (int t = 0; t < SCE_GXM_MAX_TEXTURE_UNITS; t++)
-            if (gxm::get_base_format(hints.fragment_textures[t]) == SCE_GXM_TEXTURE_BASE_FORMAT_F32F32)
-                sampled_f32f32 = true;
-        const bool writes_f16 = gxm::get_base_format(hints.color_format) == SCE_GXM_COLOR_BASE_FORMAT_F16F16F16F16;
-        if ((sampled_f32f32 || writes_f16) && dumped.load() < 6) {
-            dumped++;
-            std::string text;
-            shader::spirv_disasm_print(source, &text);
-            LOG_INFO("iOS shader dump {} (sampled_f32f32={} writes_f16={}) tex formats: {:08X} {:08X} {:08X} {:08X}", hash_text, sampled_f32f32, writes_f16,
-                static_cast<uint32_t>(hints.fragment_textures[0]), static_cast<uint32_t>(hints.fragment_textures[1]),
-                static_cast<uint32_t>(hints.fragment_textures[2]), static_cast<uint32_t>(hints.fragment_textures[3]));
-            size_t pos = 0;
-            int lines = 0;
-            while (pos < text.size() && lines < 700) {
-                size_t end = text.find('\n', pos);
-                if (end == std::string::npos)
-                    end = text.size();
-                LOG_INFO("SPV {} {}", hash_text.substr(0, 8), std::string_view(text).substr(pos, end - pos));
-                pos = end + 1;
-                lines++;
-            }
-        }
-    }
-#endif
 
     vk::ShaderModuleCreateInfo shader_info{
         .codeSize = sizeof(uint32_t) * source.size(),
