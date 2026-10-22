@@ -889,6 +889,17 @@ int TextureCache::cache_and_bind_sampler(const SceGxmTexture &gxm_texture, bool 
     is_depth &= !support_depth_linear_filtering;
     compact_repr |= (static_cast<uint32_t>(is_depth) << 23);
 
+    // Raw integer textures (U32U32 and friends) hold bit patterns, not colours: hardware never filters them.
+    // The game (Ragnarok Odyssey reading its HDR buffer as raw words) requests linear filtering anyway, which
+    // blends the raw bits (and is not even supported for 32-bit floats on iOS), so force point sampling.
+    {
+        const SceGxmTextureBaseFormat base = gxm::get_base_format(gxm::get_format(gxm_texture));
+        if (base == SCE_GXM_TEXTURE_BASE_FORMAT_U32U32 || base == SCE_GXM_TEXTURE_BASE_FORMAT_U32 || base == SCE_GXM_TEXTURE_BASE_FORMAT_S32) {
+            is_depth = true; // is_depth makes configure_sampler use point filtering
+            compact_repr |= (1u << 24);
+        }
+    }
+
     auto it = sampler_lookup.find(compact_repr);
     if (it != sampler_lookup.end()) {
         sampler_queue.set_as_mru(it->second);
