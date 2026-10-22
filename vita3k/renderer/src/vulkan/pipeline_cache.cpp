@@ -498,7 +498,7 @@ vk::PipelineShaderStageCreateInfo PipelineCache::retrieve_shader(const SceGxmPro
         const bool writer = gxm::get_base_format(hints.color_format) == SCE_GXM_COLOR_BASE_FORMAT_F16F16F16F16;
         const std::string dump_hash = hex_string(hash);
         std::lock_guard<std::mutex> dump_guard(dump_mutex);
-        if ((reader || writer) && !dumped_hashes.count(dump_hash) && dumped_readers < 5 && dumped_writers < 5) {
+        if ((reader || writer) && !dumped_hashes.count(dump_hash) && ((reader && dumped_readers < 6) || (!reader && writer && dumped_writers < 1))) {
             const std::string file_name = fmt::format("vk{}-{}.spv", shader::CURRENT_VERSION, dump_hash);
             const std::vector<uint32_t> spv = renderer::pre_load_shader_spirv(state.shaders_path / file_name);
             if (!spv.empty()) {
