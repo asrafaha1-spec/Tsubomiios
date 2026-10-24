@@ -38,6 +38,7 @@ static BOOL g_return_to_game_menu = NO;
 
 static UITapGestureRecognizer *g_three_finger_tap = nil;
 
+extern "C" void vita3k_ios_log_line(const char *message);
 static void performOnMainThread(dispatch_block_t block);
 static void presentGameMenu();
 static void dismissPresentedSheet(void (^completion)(void));
@@ -89,6 +90,7 @@ static void presentSheet(UIViewController *sheet) {
     UIViewController *presenter = sheetPresenter();
     if (!presenter) {
         SDL_Log("Vita3K iOS: cannot present sheet - no key window / root view controller");
+        vita3k_ios_log_line("cannot present sheet - no key window / root view controller");
         return;
     }
     SDL_Log("Vita3K iOS: presenting sheet %s from %s",
@@ -96,6 +98,7 @@ static void presentSheet(UIViewController *sheet) {
     g_presented_sheet = sheet;
     [presenter presentViewController:sheet animated:YES completion:^{
         SDL_Log("Vita3K iOS: sheet presented");
+        vita3k_ios_log_line("menu sheet presented");
     }];
 }
 
@@ -116,6 +119,7 @@ static Vita3KThreeFingerTarget *g_three_finger_target = nil;
 
 static void presentGameMenu() {
     SDL_Log("Vita3K iOS: in-game menu button tapped");
+    vita3k_ios_log_line("in-game menu button tapped");
     dismissPresentedSheet(^{
         presentSheet([TsubomiGameOverlayHosts
             gameMenuViewControllerWithResume:^{

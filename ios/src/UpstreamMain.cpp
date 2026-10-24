@@ -543,6 +543,11 @@ private:
 // has attached and enabled invalid-page execution (JIT), whereas P_TRACED drops
 // the moment StikDebug detaches.
 extern "C" int csops(pid_t pid, unsigned int ops, void *useraddr, size_t usersize);
+// Lets the Objective-C++ overlay code write to tsubomi.log (SDL_Log there only reaches the system log).
+extern "C" void vita3k_ios_log_line(const char *message) {
+    LOG_INFO("iOS UI: {}", message);
+}
+
 #ifndef CS_OPS_STATUS
 #define CS_OPS_STATUS 0
 #endif

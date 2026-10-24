@@ -69,6 +69,9 @@ struct ControlTouchSurface: UIViewRepresentable {
         /// button, whose own view handles the tap.
         override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
             guard let model else { return false }
+            // The menu button is handled here, not by a SwiftUI gesture underneath:
+            // on iOS 16 that gesture never fired, so the button did nothing.
+            if !model.isEditing, model.menuFrame(in: bounds.size)?.contains(point) == true { return true }
             if control(at: point) != nil { return true }
             guard model.dynamicSticksActive else { return false }
             return model.menuFrame(in: bounds.size)?.contains(point) != true
@@ -91,6 +94,11 @@ struct ControlTouchSurface: UIViewRepresentable {
             guard let model else { return }
             for touch in touches {
                 let location = touch.location(in: self)
+                if let menu = model.menuFrame(in: bounds.size), menu.contains(location), !model.isEditing {
+                    menuTouches[ObjectIdentifier(touch)] = location
+                    ControllerHaptics.tick(model.hapticStrength)
+                    continue
+                }
                 guard let definition = control(at: location) else {
                     // Empty screen. A control was not hit, so this is either a
                     // floating stick or nothing at all - which is why pressing
@@ -134,11 +142,28 @@ struct ControlTouchSurface: UIViewRepresentable {
         }
 
         override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+            finishMenuTouches(touches, cancelled: false)
             release(touches)
         }
 
         override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
+            finishMenuTouches(touches, cancelled: true)
             release(touches)
+        }
+
+        /// Touches that started on the menu button. A release still on the
+        /// button (with a little slack for a thumb) opens the menu.
+        private var menuTouches: [ObjectIdentifier: CGPoint] = [:]
+
+        private func finishMenuTouches(_ touches: Set<UITouch>, cancelled: Bool) {
+            guard let model else { return }
+            for touch in touches {
+                guard menuTouches.removeValue(forKey: ObjectIdentifier(touch)) != nil, !cancelled else { continue }
+                let location = touch.location(in: self)
+                if let menu = model.menuFrame(in: bounds.size), menu.insetBy(dx: -12, dy: -12).contains(location) {
+                    onMenuTap?()
+                }
+            }
         }
 
         private func release(_ touches: Set<UITouch>) {
