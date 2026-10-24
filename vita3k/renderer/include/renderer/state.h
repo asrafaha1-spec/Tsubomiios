@@ -249,6 +249,10 @@ struct State {
     void set_app(const char *title_id, const char *self_name) {
         shaders_path = cache_path / "shaders" / title_id / self_name;
         shaders_log_path = log_path / "shaderlog" / title_id / self_name;
+#ifdef VITA3K_PLATFORM_IOS
+        // Ragnarok Odyssey ACE: HDR buffer holds raw packed words, see features/state.h
+        g_raw_f16_surfaces = std::string_view(title_id) == "PCSE00300";
+#endif
     }
 };
 } // namespace renderer

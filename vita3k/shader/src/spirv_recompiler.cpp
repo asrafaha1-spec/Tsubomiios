@@ -1504,8 +1504,9 @@ static spv::Function *make_frag_finalize_function(spv::Builder &b, const SpirvSh
     // Some games (Ragnarok Odyssey HDR buffer) render into an F16F16F16F16 surface but their shader
     // outputs two raw 32-bit words, each holding two packed halves (the hardware just stores those 64 bits).
     // Converting these words as if they were floats destroys the data, so unpack the halves instead.
+    // (when g_raw_f16_surfaces is set the surface is stored as R32G32Sfloat and the words are written untouched)
     if (gxm::get_base_format(translate_state.hints->color_format) == SCE_GXM_COLOR_BASE_FORMAT_F16F16F16F16
-        && color_val_operand.type == DataType::F32) {
+        && color_val_operand.type == DataType::F32 && !g_raw_f16_surfaces) {
         const spv::Id f32_type = b.makeFloatType(32);
         const spv::Id u32_type = b.makeUintType(32);
         const spv::Id v2_type = b.makeVectorType(f32_type, 2);

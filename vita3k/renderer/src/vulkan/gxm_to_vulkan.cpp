@@ -17,6 +17,8 @@
 
 #include <renderer/vulkan/gxm_to_vulkan.h>
 
+#include <features/state.h>
+
 #include <gxm/functions.h>
 #include <util/log.h>
 
@@ -445,7 +447,8 @@ vk::Format translate_format(SceGxmColorBaseFormat format) {
     case SCE_GXM_COLOR_BASE_FORMAT_S8S8S8S8:
         return vk::Format::eR8G8B8A8Snorm;
     case SCE_GXM_COLOR_BASE_FORMAT_F16F16F16F16:
-        return vk::Format::eR16G16B16A16Sfloat;
+        // games storing raw packed words here need an exact 64-bit format, see features/state.h
+        return g_raw_f16_surfaces ? vk::Format::eR32G32Sfloat : vk::Format::eR16G16B16A16Sfloat;
 
     // packed formats
     case SCE_GXM_COLOR_BASE_FORMAT_U5U6U5:

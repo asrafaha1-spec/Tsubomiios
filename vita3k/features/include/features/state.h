@@ -17,6 +17,12 @@
 
 #pragma once
 
+// iOS compatibility hack: some games (Ragnarok Odyssey) render raw packed words (e.g. RGBA8 colours) into
+// F16F16F16F16 surfaces and read them back as raw U32U32. A float16 surface cannot keep arbitrary bit patterns
+// (NaN payloads, denormals), so for these games such surfaces are stored as R32G32Sfloat and the shader output
+// words are written untouched. Set from the title id when the game is loaded.
+inline bool g_raw_f16_surfaces = false;
+
 struct FeatureState {
     bool support_shader_interlock = false; ///< First option for blending. Using this with ordered execution mode.
     bool support_texture_barrier = false; ///< Second option for blending. Slower but work on 3 vendors.
