@@ -161,6 +161,10 @@ struct ControlsOverlayView: View {
                     Circle().strokeBorder(.tint, lineWidth: 1.5)
                 }
             }
+            // Without an explicit hit shape SwiftUI on iOS 16 only treats the
+            // drawn glyph (the three dots) as tappable, not the circle around it.
+            // Must come before .position, which grows the view to the whole screen.
+            .contentShape(Circle())
             .position(x: frame.midX, y: frame.midY)
             .gesture(menuGesture(in: size))
             .accessibilityLabel("In-game menu")
