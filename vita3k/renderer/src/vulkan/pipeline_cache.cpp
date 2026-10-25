@@ -948,7 +948,39 @@ vk::Pipeline PipelineCache::compile_pipeline(SceGxmPrimitiveType type, vk::Rende
 
         return result.value;
     } catch (const std::exception &e) {
-        LOG_ERROR("Failed to create pipeline ({}); draws using it will be skipped", e.what());
+        const std::string vertex_hash = hex_string(vertex_program.hash);
+        const std::string fragment_hash = hex_string(fragment_program.hash);
+        LOG_ERROR("Failed to create pipeline ({}); draws using it will be skipped. vertex shader {} fragment shader {} color_format=0x{:X} fragment textures: {:08X} {:08X} {:08X} {:08X}",
+            e.what(), vertex_hash, fragment_hash, static_cast<uint32_t>(record.color_surface.colorFormat),
+            static_cast<uint32_t>(hints.fragment_textures[0]), static_cast<uint32_t>(hints.fragment_textures[1]),
+            static_cast<uint32_t>(hints.fragment_textures[2]), static_cast<uint32_t>(hints.fragment_textures[3]));
+
+        // Put the SPIR-V of both shaders into the log (first two failures only) so the
+        // offending instruction can be found from a device log alone.
+        static int failures_dumped = 0;
+        if (failures_dumped < 2) {
+            failures_dumped++;
+            for (const auto &[label, hash_text] : { std::pair<const char *, std::string>{ "vertex", vertex_hash }, std::pair<const char *, std::string>{ "fragment", fragment_hash } }) {
+                const std::string file_name = fmt::format("vk{}-{}.spv", shader::CURRENT_VERSION, hash_text);
+                const std::vector<uint32_t> spv = renderer::pre_load_shader_spirv(state.shaders_path / file_name);
+                if (spv.empty()) {
+                    LOG_ERROR("FAILED-SHADER {} {}: no cached SPIR-V file found", label, hash_text.substr(0, 8));
+                    continue;
+                }
+                std::string text;
+                shader::spirv_disasm_print(spv, &text);
+                size_t pos = 0;
+                int lines = 0;
+                while (pos < text.size() && lines < 900) {
+                    size_t end = text.find('\n', pos);
+                    if (end == std::string::npos)
+                        end = text.size();
+                    LOG_ERROR("FAILED-SHADER {} {} {}", label, hash_text.substr(0, 8), std::string_view(text).substr(pos, end - pos));
+                    pos = end + 1;
+                    lines++;
+                }
+            }
+        }
         return nullptr;
     }
 }
