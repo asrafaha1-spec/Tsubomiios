@@ -337,19 +337,6 @@ void TextureCache::upload_texture(const SceGxmTexture &gxm_texture, MemState &me
     uint32_t width = gxm::get_width(gxm_texture);
     uint32_t height = gxm::get_height(gxm_texture);
 
-#ifdef VITA3K_PLATFORM_IOS
-    {
-        // One log line per distinct texture format/layout the game uploads, to
-        // tell which formats a game with wrong colours depends on.
-        static unordered_set_fast<uint64_t> seen_texture_kinds;
-        const uint64_t kind = (static_cast<uint64_t>(static_cast<uint32_t>(base_format)) << 32) | static_cast<uint64_t>(static_cast<uint32_t>(gxm_texture.texture_type()));
-        if (seen_texture_kinds.insert(kind).second) {
-            LOG_INFO("iOS texture format census: base_format=0x{:X} type=0x{:X} first size={}x{} swizzle_mode=0x{:X} gamma={}",
-                static_cast<uint32_t>(base_format), static_cast<uint32_t>(gxm_texture.texture_type()), width, height,
-                static_cast<uint32_t>(fmt) & 0xF000u, static_cast<uint32_t>(gxm_texture.gamma_mode));
-        }
-    }
-#endif
 
     const Ptr<uint8_t> data(gxm_texture.data_addr << 2);
     uint8_t *texture_data = data.get(mem);
@@ -557,26 +544,6 @@ void TextureCache::upload_texture(const SceGxmTexture &gxm_texture, MemState &me
             break;
         }
 
-#ifdef VITA3K_PLATFORM_IOS
-        // Diagnostic: average colour of each texture kind after the CPU decode
-        // (PVRT / palette). If these are already green the decoder is at fault,
-        // if they look sane the problem is later (upload, swizzle or shader).
-        if (!texture_data_decompressed.empty() && bytes_per_pixel == 4 && pixels == texture_data_decompressed.data()) {
-            static unordered_set_fast<uint64_t> seen_decoded_kinds;
-            const uint64_t decoded_kind = (static_cast<uint64_t>(static_cast<uint32_t>(base_format)) << 32) | static_cast<uint64_t>(is_swizzled);
-            if (seen_decoded_kinds.insert(decoded_kind).second) {
-                const size_t pixel_count = std::min<size_t>(texture_data_decompressed.size() / 4, static_cast<size_t>(pixels_per_stride) * memory_height);
-                uint64_t sum[4] = {};
-                for (size_t i = 0; i < pixel_count; i++)
-                    for (int c = 0; c < 4; c++)
-                        sum[c] += texture_data_decompressed[i * 4 + c];
-                const uint64_t n = std::max<size_t>(pixel_count, 1);
-                LOG_INFO("iOS decoded texture colours: base_format=0x{:X} swizzled={} {}x{} avg bytes [0..3]={},{},{},{}",
-                    static_cast<uint32_t>(base_format), is_swizzled, pixels_per_stride, memory_height,
-                    sum[0] / n, sum[1] / n, sum[2] / n, sum[3] / n);
-            }
-        }
-#endif
 
         if (texture_type != SCE_GXM_TEXTURE_LINEAR && texture_type != SCE_GXM_TEXTURE_LINEAR_STRIDED && !gxm::is_pvrt_format(base_format)) {
             // Convert data to linear layout

@@ -274,43 +274,6 @@ SurfaceRetrieveResult VKSurfaceCache::retrieve_color_surface_for_framebuffer(Mem
     else
         tiling = SurfaceTiling::Tiled;
 
-#ifdef VITA3K_PLATFORM_IOS
-    {
-        // The surface-sync readback diagnostic in perform_post_surface_sync
-        // only ever sees LINEAR surfaces (need_surface_sync is only set for
-        // those, further down in this function) - a scene whose actual color
-        // output lives in a SWIZZLED/TILED render target is completely
-        // invisible to it. Periodically dump every surface currently
-        // resident in the cache (this function runs once per scene, for
-        // every render target) so a device log can show whether such a
-        // surface exists, and how large/what-format it is, even though we
-        // can't read its GPU-side content back without memory mapping.
-        static uint64_t last_cache_dump_ms = 0;
-        // Retire after the first minute, exactly like the guest watchdog does.
-        // This exists to characterise the surface cache as a title boots; once
-        // that is answered it is re-formatting and re-writing the whole cache
-        // (a dozen-odd lines) every three seconds for the entire session, which
-        // on a multi-hour play session is battery spent on a question already
-        // answered.
-        static int cache_dumps_remaining = 20;
-        const uint64_t now_ms = static_cast<uint64_t>(
-            std::chrono::duration_cast<std::chrono::milliseconds>(
-                std::chrono::steady_clock::now().time_since_epoch())
-                .count());
-        if (cache_dumps_remaining > 0 && now_ms - last_cache_dump_ms >= 3000) {
-            last_cache_dump_ms = now_ms;
-            if (--cache_dumps_remaining == 0)
-                LOG_INFO("iOS surface-cache dump retiring: boot characterisation complete");
-            static const char *const tiling_names[] = { "Linear", "Swizzled", "Tiled" };
-            for (const auto &entry : color_address_lookup) {
-                const ColorSurfaceCacheInfo &info = *entry.second;
-                LOG_INFO("iOS surface-cache entry: addr=0x{:08X} fmt={} {}x{} stride={} tiling={} last_frame_rendered={}",
-                    entry.first, vk::to_string(info.texture.format), info.original_width, info.original_height,
-                    info.stride_bytes, tiling_names[static_cast<int>(info.tiling)], info.last_frame_rendered);
-            }
-        }
-    }
-#endif
 
     const bool is_srgb = color->gamma != 0;
     if (is_srgb) {
@@ -495,21 +458,6 @@ std::optional<TextureLookupResult> VKSurfaceCache::retrieve_color_surface_as_tex
     const vk::ComponentMapping swizzle = texture::translate_swizzle(gxm::get_format(texture));
     vk::Format vk_format = color::translate_format(base_format);
 
-#ifdef VITA3K_PLATFORM_IOS
-    {
-        static std::set<uint64_t> logged_combos;
-        const auto &sw = swizzle;
-        const uint64_t key = (uint64_t(address) << 20) ^ (uint64_t(base_format) << 12) ^ (uint64_t(sw.r) << 9) ^ (uint64_t(sw.g) << 6) ^ (uint64_t(sw.b) << 3) ^ uint64_t(sw.a) ^ (uint64_t(gxm::get_format(texture)) << 40);
-        if (logged_combos.insert(key).second && logged_combos.size() < 200) {
-            LOG_INFO("iOS surface-as-texture: tex addr=0x{:08X} {}x{} gxm_format=0x{:X} sampled_base_format={} vk_format={} swizzle(rgba)={}{}{}{} | surface addr=0x{:08X} fmt={} surface_swizzle(rgba)={}{}{}{} | filters min={} mag={} mip={} addr_mode u={} v={}",
-                address, original_width, original_height, static_cast<uint32_t>(gxm::get_format(texture)), static_cast<uint32_t>(base_format), vk::to_string(vk_format),
-                static_cast<int>(sw.r), static_cast<int>(sw.g), static_cast<int>(sw.b), static_cast<int>(sw.a),
-                ite->first, vk::to_string(ite->second->texture.format),
-                static_cast<int>(ite->second->swizzle.r), static_cast<int>(ite->second->swizzle.g), static_cast<int>(ite->second->swizzle.b), static_cast<int>(ite->second->swizzle.a),
-                static_cast<int>(texture.min_filter), static_cast<int>(texture.mag_filter), static_cast<int>(texture.mip_filter), static_cast<int>(texture.uaddr_mode), static_cast<int>(texture.vaddr_mode));
-        }
-    }
-#endif
 
     const bool is_srgb = texture.gamma_mode != 0;
     if (is_srgb) {
@@ -1517,113 +1465,6 @@ void VKSurfaceCache::perform_post_surface_sync(const MemState &mem, ColorSurface
         const size_t byte_count = static_cast<size_t>(surface->stride_bytes) * surface->original_height;
         memcpy(pixels, surface->copy_buffer->mapped_data, byte_count);
 
-#ifdef VITA3K_PLATFORM_IOS
-        // Per-surface diagnostic, rate-limited to ~1 line per surface per 3s so
-        // it shows STEADY-STATE content (the earlier one-shot version only saw
-        // each surface's first, often-empty sync). Samples the whole surface,
-        // not just the first 4 KB, so a mostly-dark buffer with a bright region
-        // is not misreported as all-black.
-        {
-            static std::map<Address, uint64_t> last_logged_ms;
-            const uint64_t now_ms = static_cast<uint64_t>(
-                std::chrono::duration_cast<std::chrono::milliseconds>(
-                    std::chrono::steady_clock::now().time_since_epoch())
-                    .count());
-            auto &last_ms = last_logged_ms[surface->data.address()];
-            if (last_ms == 0 || now_ms - last_ms >= 3000) {
-                last_ms = now_ms;
-                const auto *bytes = static_cast<const uint8_t *>(surface->copy_buffer->mapped_data);
-                uint64_t sum = 0;
-                uint8_t lo = 255;
-                uint8_t hi = 0;
-                size_t nonzero = 0;
-                // Stride the whole buffer (cap ~8k samples) so bright regions
-                // anywhere in the surface are represented.
-                const size_t step = std::max<size_t>(1, byte_count / 8192);
-                size_t sampled = 0;
-                for (size_t i = 0; i < byte_count; i += step, ++sampled) {
-                    sum += bytes[i];
-                    lo = std::min(lo, bytes[i]);
-                    hi = std::max(hi, bytes[i]);
-                    if (bytes[i])
-                        ++nonzero;
-                }
-                LOG_INFO("iOS surface-sync readback: addr=0x{:08X} fmt={} {}x{} stride={} type={} "
-                         "avg={:.1f} min={} max={} nonzero={}%",
-                    surface->data.address(), vk::to_string(surface->texture.format),
-                    surface->original_width, surface->original_height, surface->stride_bytes,
-                    static_cast<int>(surface->tiling),
-                    sampled ? static_cast<double>(sum) / sampled : 0.0, lo, hi,
-                    sampled ? static_cast<int>(nonzero * 100 / sampled) : 0);
-
-                // Per-channel averages, to see which stage first turns the
-                // picture green (HDR scene buffer, bloom, or final output).
-                const vk::Format ch_format = surface->texture.format;
-                const bool ch_u8 = ch_format == vk::Format::eR8G8B8A8Unorm || ch_format == vk::Format::eB8G8R8A8Unorm;
-                const bool ch_f16 = ch_format == vk::Format::eR16G16B16A16Sfloat;
-                if ((ch_u8 || ch_f16) && byte_count >= 16) {
-                    const size_t bytes_per_pixel = ch_f16 ? 8 : 4;
-                    const size_t pixel_total = byte_count / bytes_per_pixel;
-                    const size_t pixel_step = std::max<size_t>(1, pixel_total / 4096);
-                    double channel_sum[4] = {};
-                    size_t pixels_sampled = 0;
-                    for (size_t px = 0; px < pixel_total; px += pixel_step, ++pixels_sampled) {
-                        const uint8_t *p = bytes + px * bytes_per_pixel;
-                        for (int c = 0; c < 4; c++) {
-                            if (ch_u8) {
-                                channel_sum[c] += p[c];
-                            } else {
-                                // half float to float
-                                const uint16_t h = static_cast<uint16_t>(p[c * 2] | (p[c * 2 + 1] << 8));
-                                const int exponent = (h >> 10) & 0x1F;
-                                const double mantissa = h & 0x3FF;
-                                double value = exponent == 0 ? mantissa / 1024.0 * 6.103515625e-5
-                                    : (exponent == 31 ? 0.0 : (1.0 + mantissa / 1024.0) * std::ldexp(1.0, exponent - 15));
-                                if (h & 0x8000)
-                                    value = -value;
-                                channel_sum[c] += value;
-                            }
-                        }
-                    }
-                    if (ch_f16) {
-                        // class histogram per channel: zero / finite / inf / nan, plus raw centre pixels
-                        size_t cls[4][4] = {};
-                        for (size_t px = 0; px < pixel_total; px += pixel_step) {
-                            const uint8_t *p = bytes + px * bytes_per_pixel;
-                            for (int c = 0; c < 4; c++) {
-                                const uint16_t h = static_cast<uint16_t>(p[c * 2] | (p[c * 2 + 1] << 8));
-                                const int e = (h >> 10) & 0x1F;
-                                const int m = h & 0x3FF;
-                                cls[c][(h & 0x7FFF) == 0 ? 0 : (e == 31 ? (m ? 3 : 2) : 1)]++;
-                            }
-                        }
-                        const size_t mid = pixel_total / 2 + 480;
-                        const uint8_t *q = bytes + mid * bytes_per_pixel;
-                        {
-                            std::string words;
-                            for (int r = 0; r < 3; r++) {
-                                const size_t base_px = pixel_total * (r + 1) / 4;
-                                words += fmt::format(" row{}:", r);
-                                for (int k = 0; k < 6; k++) {
-                                    const uint8_t *w = bytes + (base_px + k) * bytes_per_pixel;
-                                    words += fmt::format(" {:02X}{:02X}{:02X}{:02X}_{:02X}{:02X}{:02X}{:02X}", w[3], w[2], w[1], w[0], w[7], w[6], w[5], w[4]);
-                                }
-                            }
-                            LOG_INFO("iOS f16 raw 32-bit words per pixel (word1_word0):{}", words);
-                        }
-                        LOG_INFO("iOS f16 classes (zero/finite/inf/nan) R={}/{}/{}/{} G={}/{}/{}/{} B={}/{}/{}/{} A={}/{}/{}/{} | centre px raw={:02X}{:02X} {:02X}{:02X} {:02X}{:02X} {:02X}{:02X}",
-                            cls[0][0], cls[0][1], cls[0][2], cls[0][3], cls[1][0], cls[1][1], cls[1][2], cls[1][3],
-                            cls[2][0], cls[2][1], cls[2][2], cls[2][3], cls[3][0], cls[3][1], cls[3][2], cls[3][3],
-                            q[1], q[0], q[3], q[2], q[5], q[4], q[7], q[6]);
-                    }
-                    const double n = std::max<size_t>(pixels_sampled, 1);
-                    LOG_INFO("iOS surface-sync channels: addr=0x{:08X} fmt={} avg RGBA(memory order)={:.3f},{:.3f},{:.3f},{:.3f}",
-                        surface->data.address(), vk::to_string(ch_format),
-                        channel_sum[0] / n, channel_sum[1] / n, channel_sum[2] / n, channel_sum[3] / n);
-                }
-            }
-        }
-#endif
 
         const bool is_swizzle_identity = surface->swizzle.r == vk::ComponentSwizzle::eR
             || !format_support_swizzle(surface->format);
