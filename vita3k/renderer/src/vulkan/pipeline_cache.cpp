@@ -391,8 +391,10 @@ void PipelineCache::cleanup() {
     if (use_async_compilation)
         set_async_compilation(false);
 
+    const vk::Pipeline pipeline_failed_sentinel = std::bit_cast<vk::Pipeline, uint64_t>(~1ULL);
     for (auto &[hash, pipeline] : pipelines)
-        state.device.destroy(pipeline);
+        if (pipeline != pipeline_failed_sentinel)
+            state.device.destroy(pipeline);
     pipelines.clear();
 
     {
@@ -934,13 +936,21 @@ vk::Pipeline PipelineCache::compile_pipeline(SceGxmPrimitiveType type, vk::Rende
         .subpass = 0
     };
 
-    const auto result = state.device.createGraphicsPipeline(pipeline_cache, pipeline_info);
-    if (result.result != vk::Result::eSuccess) {
-        LOG_CRITICAL("Failed to create pipeline.");
+    // MoltenVK can refuse to build a pipeline (e.g. ErrorInitializationFailed when the generated
+    // Metal shader does not compile). That used to throw out of the render thread and kill the whole
+    // app; skip the draws that need this pipeline instead.
+    try {
+        const auto result = state.device.createGraphicsPipeline(pipeline_cache, pipeline_info);
+        if (result.result != vk::Result::eSuccess) {
+            LOG_CRITICAL("Failed to create pipeline.");
+            return nullptr;
+        }
+
+        return result.value;
+    } catch (const std::exception &e) {
+        LOG_ERROR("Failed to create pipeline ({}); draws using it will be skipped", e.what());
         return nullptr;
     }
-
-    return result.value;
 }
 
 vk::Pipeline PipelineCache::retrieve_pipeline(VKContext &context, SceGxmPrimitiveType &type, bool consider_for_async, MemState &mem) {
@@ -963,14 +973,15 @@ vk::Pipeline PipelineCache::retrieve_pipeline(VKContext &context, SceGxmPrimitiv
 
     // can't use constexpr because of apple clang...
     const vk::Pipeline pipeline_compiling = std::bit_cast<vk::Pipeline, uint64_t>(~0ULL);
+    const vk::Pipeline pipeline_failed = std::bit_cast<vk::Pipeline, uint64_t>(~1ULL);
     // if the pipeline is in the pipeline cache, we can expect its creation time to be almost instantaneous
     bool already_in_cache = false;
 
     auto it = pipelines.find(key);
     if (it != pipelines.end()) {
         if (it->second != nullptr) {
-            if (it->second == pipeline_compiling)
-                // pipeline is still compiling
+            if (it->second == pipeline_compiling || it->second == pipeline_failed)
+                // pipeline is still compiling, or could not be created at all
                 return nullptr;
             else
                 return it->second;
@@ -1023,7 +1034,8 @@ vk::Pipeline PipelineCache::retrieve_pipeline(VKContext &context, SceGxmPrimitiv
         if (!already_in_cache)
             state.shaders_count_compiled++;
 
-        it->second = result;
+        // remember failures so the same broken pipeline is not rebuilt (and re-thrown) on every draw
+        it->second = result ? result : pipeline_failed;
 
         return result;
     }
