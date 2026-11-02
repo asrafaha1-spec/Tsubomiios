@@ -163,6 +163,14 @@ ThreadStatePtr KernelState::create_thread(MemState &mem, const char *name, Ptr<c
     return create_thread(mem, name, entry_point, SCE_KERNEL_DEFAULT_PRIORITY, SCE_KERNEL_THREAD_CPU_AFFINITY_MASK_DEFAULT, SCE_KERNEL_STACK_SIZE_USER_MAIN, nullptr);
 }
 
+std::shared_ptr<CoreToken> KernelState::get_core_token(SceInt32 affinity_mask) {
+    const std::lock_guard<std::mutex> lock(core_token_mutex);
+    auto &token = core_tokens[affinity_mask];
+    if (!token)
+        token = std::make_shared<CoreToken>();
+    return token;
+}
+
 ThreadStatePtr KernelState::create_thread(MemState &mem, const char *name, Ptr<const void> entry_point, int init_priority, SceInt32 affinity_mask, int stack_size, const SceKernelThreadOptParam *option) {
     ThreadStatePtr thread = std::make_shared<ThreadState>(get_next_uid(), *this, mem);
     if (thread->init(name, entry_point, init_priority, affinity_mask, stack_size, option) < 0)

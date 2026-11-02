@@ -19,14 +19,18 @@
 
 #include <cpu/state.h>
 #include <kernel/callback.h>
+#include <kernel/thread/core_token.h>
 #include <kernel/types.h>
 #include <mem/block.h>
 #include <mem/ptr.h>
 
+#include <atomic>
 #include <condition_variable>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <string>
+#include <thread>
 
 struct CPUContext;
 
@@ -106,6 +110,13 @@ struct ThreadState {
     // args and argp are passed to thread->start as is
     uint32_t run_guest_function(Address callback_address, SceSize args = 0, const Ptr<void> argp = Ptr<void>{});
 
+    // Core serialization (see core_token.h). No-ops for threads without a core token.
+    // acquire_core() must be called from this thread's own host thread, without
+    // holding any other lock. release_core() is safe to call from anywhere: it
+    // only does something when called by the host thread that holds the token.
+    void acquire_core();
+    void release_core();
+
     void suspend();
     void resume(bool step = false);
     std::string log_stack_traceback() const;
@@ -137,6 +148,11 @@ private:
     // Times start() has run. Threads that restart (GXM display queue runs its
     // callback per frame) must keep their JIT cache across dormant parks.
     uint32_t start_count = 0;
+
+    // Shared with every other thread pinned to the same core, null when this thread is not serialized.
+    std::shared_ptr<CoreToken> core_token;
+    std::atomic<bool> core_token_held{ false };
+    std::atomic<std::thread::id> core_token_owner{};
 
     MemState &mem;
 };

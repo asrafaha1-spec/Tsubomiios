@@ -25,6 +25,7 @@
 #include <util/log.h>
 
 #include <cassert>
+#include <chrono>
 #include <cstring>
 #include <memory>
 #include <sstream>
@@ -67,6 +68,22 @@ int ThreadState::init(const char *name, Ptr<const void> entry_point, int init_pr
         priority = init_priority;
     }
     this->affinity_mask = affinity_mask;
+#if defined(VITA3K_PLATFORM_IOS)
+    // Sony's SceLibFios2 worker threads (SceFiosIO, SceFiosCallback, ...) are
+    // all pinned to the same core at the same priority and rely on never
+    // running in parallel: they take SceFiosChunk and SceFiosScheduler in
+    // opposite orders. Run in parallel they deadlock at boot (observed with
+    // God of War Collection). Make threads of that library take turns on their
+    // core, as they do on hardware.
+    {
+        const bool single_core = (affinity_mask & SCE_KERNEL_CPU_MASK_USER_ALL) == affinity_mask
+            && affinity_mask != 0 && (affinity_mask & (affinity_mask - 1)) == 0;
+        if (single_core && this->name.rfind("SceFios", 0) == 0) {
+            core_token = kernel.get_core_token(affinity_mask);
+            LOG_INFO("Thread {} (#{}) is serialized on core mask {}", this->name, id, log_hex(static_cast<uint32_t>(affinity_mask)));
+        }
+    }
+#endif
     this->stack_size = stack_size;
     start_tick = rtc_get_ticks(kernel.base_tick.tick);
     last_vblank_waited = 0;
@@ -261,6 +278,7 @@ void ThreadState::run_loop() {
 
         // Park until we have something to do.
         if (status != ThreadStatus::run) {
+            release_core();
             status_cond.wait(lock, [&] {
                 return status == ThreadStatus::run || delete_requested;
             });
@@ -286,6 +304,9 @@ void ThreadState::run_loop() {
                 single_stepping = false;
 
             lock.unlock();
+
+            // Take turns with the other threads pinned to our core (no lock is held here).
+            acquire_core();
 
             // Single step or run
             const int res = do_step ? step(*cpu) : run(*cpu);
@@ -322,6 +343,8 @@ void ThreadState::run_loop() {
         }
     }
 
+    if (top_level)
+        release_core();
     --call_level;
 }
 
@@ -425,6 +448,33 @@ ThreadState::ThreadState(SceUID id, KernelState &kernel, MemState &mem)
     , mem(mem) {
 }
 
+void ThreadState::acquire_core() {
+    if (!core_token || core_token_held.load(std::memory_order_acquire))
+        return;
+
+    // Bounded wait: if a holder never gives the core back (it is blocked in a
+    // kernel call that does not go through update_status), run anyway rather
+    // than turning this safety net into a new hang.
+    if (core_token->mutex.try_lock_for(std::chrono::milliseconds(100))) {
+        core_token_owner.store(std::this_thread::get_id(), std::memory_order_relaxed);
+        core_token_held.store(true, std::memory_order_release);
+    } else {
+        static std::atomic<int> warn_count{ 0 };
+        if (warn_count.fetch_add(1) < 5)
+            LOG_WARN("Thread {} (#{}) could not get its core within 100 ms, running unserialized", name, id);
+    }
+}
+
+void ThreadState::release_core() {
+    if (!core_token_held.load(std::memory_order_acquire))
+        return;
+    if (core_token_owner.load(std::memory_order_relaxed) != std::this_thread::get_id())
+        return;
+
+    core_token_held.store(false, std::memory_order_release);
+    core_token->mutex.unlock();
+}
+
 void ThreadState::update_status(ThreadStatus status, std::optional<ThreadStatus> expected) {
     if (expected)
         assert(expected.value() == this->status);
@@ -434,6 +484,11 @@ void ThreadState::update_status(ThreadStatus status, std::optional<ThreadStatus>
         return;
 
     this->status = status;
+
+    // A thread that stops running (wait, delay, suspend, exit) gives its core to the next one.
+    if (status != ThreadStatus::run)
+        release_core();
+
     status_cond.notify_all();
 
     if (status == ThreadStatus::dormant) {

@@ -22,6 +22,7 @@
 #include <kernel/debugger.h>
 #include <kernel/object_store.h>
 #include <kernel/sync_primitives.h>
+#include <kernel/thread/core_token.h>
 #include <kernel/types.h>
 #include <mem/allocator.h>
 #include <mem/block.h>
@@ -139,6 +140,9 @@ struct KernelState {
     CorenumAllocator corenum_allocator;
     CallImportFunc call_import;
 
+    std::mutex core_token_mutex;
+    std::map<SceInt32, std::shared_ptr<CoreToken>> core_tokens;
+
     // Shared NOP+WFI sentinel used by the Dynarmic as the halt return address
     Block halt_instruction;
     Address halt_instruction_pc;
@@ -179,6 +183,8 @@ struct KernelState {
     void untrack_thread_for_diagnostics(SceUID thread_id);
 
     ThreadStatePtr get_thread(SceUID thread_id);
+    // One token per single-core affinity mask, shared by the threads serialized on that core.
+    std::shared_ptr<CoreToken> get_core_token(SceInt32 affinity_mask);
     Ptr<Ptr<void>> get_thread_tls_addr(MemState &mem, SceUID thread_id, int key);
 
     bool is_threads_paused() { return !paused_threads_status.empty(); }
