@@ -20,6 +20,7 @@
 #include <io/state.h>
 #include <io/vfs.h>
 #include <kernel/state.h>
+#include <kernel/thread/thread_state.h>
 #include <packages/sfo.h>
 #include <renderer/state.h>
 #include <util/tracy.h>
@@ -437,6 +438,17 @@ EXPORT(SceInt32, _sceAppMgrLoadExec, const char *appPath, Ptr<char> const argv[]
         }
 
         emuenv.kernel.request_process_exit(0, AppLaunchRequest{ .app_path = emuenv.io.app_path, .self_path = std::move(exec_path), .argv = std::move(exec_argv), .reason = AppLaunchReason::LoadExec });
+
+        // On hardware a successful LoadExec replaces the process and never returns to the
+        // caller. Returning here lets the title run on: it calls the (unimplemented) abort
+        // handler, jumps through a null pointer and keeps faulting, which stalls the session
+        // teardown that is needed to start the new executable. Park this thread instead;
+        // exit_delete() wakes it (status run + delete_requested) when the session is torn down.
+        if (const ThreadStatePtr thread = emuenv.kernel.get_thread(thread_id)) {
+            std::unique_lock<std::mutex> lock(thread->mutex);
+            thread->update_status(ThreadStatus::wait, ThreadStatus::run);
+            thread->status_cond.wait(lock, [&] { return thread->status == ThreadStatus::run || thread->delete_requested; });
+        }
 
         return SCE_KERNEL_OK;
     }
