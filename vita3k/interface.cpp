@@ -480,7 +480,7 @@ static ExitCode load_app_impl(SceUID &main_module_id, EmuEnvState &emuenv, const
         // the host file system on iOS is case-sensitive, so resolve to the real on-disk name.
         const fs::path app_dir = emuenv.vita_fs_path / "ux0" / "app" / emuenv.io.app_path;
         const fs::path wanted = app_dir / emuenv.self_path;
-        std::error_code ec;
+        boost::system::error_code ec;
         if (!fs::exists(wanted, ec)) {
             fs::path cur = app_dir;
             bool ok = true;
