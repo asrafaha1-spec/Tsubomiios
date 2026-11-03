@@ -15,13 +15,15 @@ final class GameOverlayHosts: NSObject {
     /// each has a different dismissal rule: Resume and Quit close the menu,
     /// Controller Options and Trophies replace it and return to it afterwards,
     /// and Hide Menu Button acts without any further screen.
-    @objc(gameMenuViewControllerWithResume:editLayout:trophies:performanceHUD:hideMenuButton:quit:)
+    @objc(gameMenuViewControllerWithResume:editLayout:trophies:performanceHUD:hideMenuButton:rearTouch:setRearTouch:quit:)
     static func gameMenuViewController(
         onResume: @escaping () -> Void,
         onEditLayout: @escaping () -> Void,
         onTrophies: @escaping () -> Void,
         onPerformanceHUD: @escaping () -> Void,
         onHideMenuButton: @escaping () -> Void,
+        rearTouch: Bool,
+        onSetRearTouch: @escaping (Bool) -> Void,
         onQuit: @escaping () -> Void
     ) -> UIViewController {
         host(GameMenuView(
@@ -30,6 +32,8 @@ final class GameOverlayHosts: NSObject {
             onTrophies: onTrophies,
             onPerformanceHUD: onPerformanceHUD,
             onHideMenuButton: onHideMenuButton,
+            rearTouch: rearTouch,
+            onSetRearTouch: onSetRearTouch,
             onQuit: onQuit
         ))
     }

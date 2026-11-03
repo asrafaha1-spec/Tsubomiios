@@ -544,6 +544,10 @@ private:
 // the moment StikDebug detaches.
 extern "C" int csops(pid_t pid, unsigned int ops, void *useraddr, size_t usersize);
 // Lets the Objective-C++ overlay code write to tsubomi.log (SDL_Log there only reaches the system log).
+static std::atomic<bool> g_ios_rear_touch{ false };
+extern "C" void vita3k_ios_set_rear_touch(bool on) { g_ios_rear_touch.store(on); }
+extern "C" bool vita3k_ios_rear_touch(void) { return g_ios_rear_touch.load(); }
+
 extern "C" void vita3k_ios_log_line(const char *message) {
     LOG_INFO("iOS UI: {}", message);
 }
@@ -3246,6 +3250,8 @@ int main(int argc, char *argv[]) {
                         emuenv->touch.finger_count = 0;
                     break;
                 }
+                // "Rear Touchpad" (in-game menu): route touches to the back panel.
+                emuenv->touch.touchscreen_port = g_ios_rear_touch.load() ? SCE_TOUCH_PORT_BACK : SCE_TOUCH_PORT_FRONT;
                 handle_touch_event(emuenv->touch, event.tfinger);
                 if (event.type != SDL_EVENT_FINGER_MOTION) {
                     LOG_DEBUG("iOS Vita touch {}: finger={} x={:.4f} y={:.4f} active={}",

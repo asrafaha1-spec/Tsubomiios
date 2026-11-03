@@ -39,6 +39,8 @@ static BOOL g_return_to_game_menu = NO;
 static UITapGestureRecognizer *g_three_finger_tap = nil;
 
 extern "C" void vita3k_ios_log_line(const char *message);
+extern "C" void vita3k_ios_set_rear_touch(bool on);
+extern "C" bool vita3k_ios_rear_touch(void);
 static void performOnMainThread(dispatch_block_t block);
 static void presentGameMenu();
 static void dismissPresentedSheet(void (^completion)(void));
@@ -150,6 +152,8 @@ static void presentGameMenu() {
                 [TsubomiControlsHost setMenuButtonVisible:NO];
                 dismissPresentedSheet(nil);
             }
+            rearTouch:vita3k_ios_rear_touch()
+            setRearTouch:^(BOOL on) { vita3k_ios_set_rear_touch(on); }
             quit:^{
                 // Post the quit synchronously and dismiss without animation.
                 // Waiting on the sheet's dismissal completion to post the
@@ -169,6 +173,7 @@ static void presentGameMenu() {
 }
 
 bool vita3k_ios_attach_virtual_controller() {
+    vita3k_ios_set_rear_touch(false);
     vita3k_ios_detach_virtual_controller();
     if (!SDL_WasInit(SDL_INIT_GAMEPAD)) {
         SDL_Log("Vita3K iOS: cannot attach touch controller before SDL gamepad init");

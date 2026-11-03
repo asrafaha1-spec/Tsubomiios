@@ -13,9 +13,31 @@ struct GameMenuView: View {
     let onTrophies: () -> Void
     let onPerformanceHUD: () -> Void
     let onHideMenuButton: () -> Void
+    let rearTouch: Bool
+    let onSetRearTouch: (Bool) -> Void
     let onQuit: () -> Void
 
     @State private var confirmingQuit = false
+    @State private var rearTouchOn: Bool
+
+    init(onResume: @escaping () -> Void,
+         onEditLayout: @escaping () -> Void,
+         onTrophies: @escaping () -> Void,
+         onPerformanceHUD: @escaping () -> Void,
+         onHideMenuButton: @escaping () -> Void,
+         rearTouch: Bool,
+         onSetRearTouch: @escaping (Bool) -> Void,
+         onQuit: @escaping () -> Void) {
+        self.onResume = onResume
+        self.onEditLayout = onEditLayout
+        self.onTrophies = onTrophies
+        self.onPerformanceHUD = onPerformanceHUD
+        self.onHideMenuButton = onHideMenuButton
+        self.rearTouch = rearTouch
+        self.onSetRearTouch = onSetRearTouch
+        self.onQuit = onQuit
+        _rearTouchOn = State(initialValue: rearTouch)
+    }
 
     var body: some View {
         NavigationStack {
@@ -36,6 +58,17 @@ struct GameMenuView: View {
                         subtitle: "FPS, frametime, memory and battery",
                         symbol: "gauge.with.dots.needle.67percent",
                         action: onPerformanceHUD)
+                    Toggle(isOn: Binding(
+                        get: { rearTouchOn },
+                        set: { rearTouchOn = $0; onSetRearTouch($0) }
+                    )) {
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text("Rear Touchpad")
+                            Text("Touches on the game act as the Vita's back panel")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
                     row("Hide Menu Button",
                         subtitle: "Restore it with a three-finger tap",
                         symbol: "eye.slash.fill",
