@@ -475,6 +475,35 @@ static ExitCode load_app_impl(SceUID &main_module_id, EmuEnvState &emuenv, const
         emuenv.self_path = !emuenv.cfg.self_path.empty() ? emuenv.cfg.self_path : EBOOT_PATH;
     }
 
+    {
+        // Some games (e.g. God of War Collection) ask for "GOW1.self" while the file on disk is "gow1.self";
+        // the host file system on iOS is case-sensitive, so resolve to the real on-disk name.
+        const fs::path app_dir = emuenv.vita_fs_path / "ux0" / "app" / emuenv.io.app_path;
+        const fs::path wanted = app_dir / emuenv.self_path;
+        std::error_code ec;
+        if (!fs::exists(wanted, ec)) {
+            fs::path cur = app_dir;
+            bool ok = true;
+            for (const auto &part : fs::path(emuenv.self_path)) {
+                std::string match;
+                for (const auto &e : fs::directory_iterator(cur, ec)) {
+                    const std::string name = e.path().filename().string();
+                    if (string_utils::toupper(name) == string_utils::toupper(part.string())) {
+                        match = name;
+                        break;
+                    }
+                }
+                if (match.empty()) { ok = false; break; }
+                cur /= match;
+            }
+            if (ok) {
+                const std::string fixed = fs::relative(cur, app_dir).generic_string();
+                LOG_INFO("self_path '{}' not found as written, using '{}'", emuenv.self_path, fixed);
+                emuenv.self_path = fixed;
+            }
+        }
+    }
+
     main_module_id = load_module(emuenv, "app0:" + emuenv.self_path);
 
     if (main_module_id >= 0) {
