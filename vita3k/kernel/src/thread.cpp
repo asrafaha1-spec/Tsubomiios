@@ -475,6 +475,13 @@ void ThreadState::release_core() {
     core_token->mutex.unlock();
 }
 
+void ThreadState::park_until_deleted() {
+    std::unique_lock<std::mutex> lock(mutex);
+    update_status(ThreadStatus::wait, ThreadStatus::run);
+    // exit_delete() sets delete_requested and moves a waiting thread back to run.
+    status_cond.wait(lock, [this] { return status == ThreadStatus::run || delete_requested; });
+}
+
 void ThreadState::update_status(ThreadStatus status, std::optional<ThreadStatus> expected) {
     if (expected)
         assert(expected.value() == this->status);

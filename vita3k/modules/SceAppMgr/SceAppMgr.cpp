@@ -442,13 +442,10 @@ EXPORT(SceInt32, _sceAppMgrLoadExec, const char *appPath, Ptr<char> const argv[]
         // On hardware a successful LoadExec replaces the process and never returns to the
         // caller. Returning here lets the title run on: it calls the (unimplemented) abort
         // handler, jumps through a null pointer and keeps faulting, which stalls the session
-        // teardown that is needed to start the new executable. Park this thread instead;
-        // exit_delete() wakes it (status run + delete_requested) when the session is torn down.
-        if (const ThreadStatePtr thread = emuenv.kernel.get_thread(thread_id)) {
-            std::unique_lock<std::mutex> lock(thread->mutex);
-            thread->update_status(ThreadStatus::wait, ThreadStatus::run);
-            thread->status_cond.wait(lock, [&] { return thread->status == ThreadStatus::run || thread->delete_requested; });
-        }
+        // teardown that is needed to start the new executable. Park this thread instead; the
+        // session teardown wakes it through ThreadState::exit_delete().
+        if (const ThreadStatePtr thread = emuenv.kernel.get_thread(thread_id))
+            thread->park_until_deleted();
 
         return SCE_KERNEL_OK;
     }

@@ -117,6 +117,10 @@ struct ThreadState {
     void acquire_core();
     void release_core();
 
+    // Park the calling guest thread until the session deletes it. Used for calls that never
+    // return on hardware (e.g. sceAppMgrLoadExec replaces the process).
+    void park_until_deleted();
+
     void suspend();
     void resume(bool step = false);
     std::string log_stack_traceback() const;
