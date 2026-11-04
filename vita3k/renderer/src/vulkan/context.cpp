@@ -16,6 +16,7 @@
 // 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
 #include <renderer/vulkan/types.h>
+#include <util/thermal.h>
 
 #include <renderer/vulkan/functions.h>
 #include <renderer/vulkan/gxm_to_vulkan.h>
@@ -58,11 +59,17 @@ void VKContext::wait_thread_function(const MemState &mem) {
         }
     };
 
+#if defined(VITA3K_PLATFORM_IOS)
+    int thermal_qos = 0;
+#endif
     while (true) {
         auto wait_request = state.request_queue.pop();
 
         if (!wait_request)
             break;
+#if defined(VITA3K_PLATFORM_IOS)
+        thermal::follow_render_qos(thermal_qos);
+#endif
 
         std::visit(overloaded{
                        [&](FenceWaitRequest &request) {

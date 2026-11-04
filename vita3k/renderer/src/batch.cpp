@@ -16,6 +16,7 @@
 // 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
 #include <renderer/commands.h>
+#include <util/thermal.h>
 #include <renderer/driver_functions.h>
 #include <renderer/functions.h>
 #include <renderer/state.h>
@@ -243,12 +244,18 @@ static void render_loop(renderer::State &state, DisplayState &display, GxmState 
             state.swap_window();
         }
     }
+#if defined(VITA3K_PLATFORM_IOS)
+    int thermal_qos = 0;
+#endif
     while (!state.render_abort.load(std::memory_order_relaxed)) {
 #ifdef TRACY_ENABLE
         ZoneScopedN("Game rendering");
 #endif
         if (!state.set_current())
             break;
+#if defined(VITA3K_PLATFORM_IOS)
+        thermal::follow_render_qos(thermal_qos);
+#endif
 
         process_batches(state, state.features, mem, config, 500);
 

@@ -16,6 +16,7 @@
 // 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
 #include <display/functions.h>
+#include <util/thermal.h>
 
 #include <dialog/state.h>
 #include <display/state.h>
@@ -37,8 +38,14 @@ static constexpr int max_expected_swapchain_size = 6;
 
 static void vblank_sync_thread(EmuEnvState &emuenv) {
     DisplayState &display = emuenv.display;
+#if defined(VITA3K_PLATFORM_IOS)
+    int thermal_qos = 0;
+#endif
 
     while (!display.abort.load()) {
+#if defined(VITA3K_PLATFORM_IOS)
+        thermal::follow_render_qos(thermal_qos);
+#endif
         {
             const std::lock_guard<std::mutex> guard(display.mutex);
 

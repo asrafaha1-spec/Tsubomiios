@@ -545,6 +545,7 @@ private:
 extern "C" int csops(pid_t pid, unsigned int ops, void *useraddr, size_t usersize);
 // Lets the Objective-C++ overlay code write to tsubomi.log (SDL_Log there only reaches the system log).
 extern "C" char *vita3k_ios_download_text(const char *url);
+extern "C" void vita3k_ios_refresh_thermal(void);
 static std::atomic<bool> g_ios_rear_touch{ false };
 extern "C" void vita3k_ios_set_rear_touch(bool on) { g_ios_rear_touch.store(on); }
 extern "C" bool vita3k_ios_rear_touch(void) { return g_ios_rear_touch.load(); }
@@ -3031,6 +3032,7 @@ int main(int argc, char *argv[]) {
         }
     };
 
+    vita3k_ios_refresh_thermal();
     app::AppSessionController session_controller(*emuenv);
     SDL_Log("Vita3K iOS: begin_launch '%s'%s", launch_request->app_path.c_str(),
         is_relaunch ? " (relaunch)" : "");

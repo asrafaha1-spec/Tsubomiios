@@ -21,6 +21,7 @@
 
 #include <cpu/common.h>
 #include <kernel/state.h>
+#include <util/thermal.h>
 #include <mem/functions.h>
 
 #include <kernel/thread/thread_state.h>
@@ -63,6 +64,11 @@ static int SDLCALL thread_function(void *data) {
     params.kernel->running_thread_bodies.fetch_add(1, std::memory_order_acq_rel);
     SDL_SignalSemaphore(params.host_may_destroy_params);
     ThreadStatePtr thread = params.kernel->get_thread(params.thid);
+#if defined(VITA3K_PLATFORM_IOS)
+    // Guest threads are the game itself. With "Keep the phone cool" they run one QoS step below the
+    // top class (still on the performance cores, without the race to the highest clock).
+    pthread_set_qos_class_self_np(thermal::game_thread_qos(), 0);
+#endif
 #ifdef TRACY_ENABLE
     if (!thread->name.empty()) {
         tracy::SetThreadName(thread->name.c_str());

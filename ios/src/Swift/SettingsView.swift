@@ -234,6 +234,7 @@ struct SettingsView: View {
 
     private var performanceOverlaySection: some View {
         Section {
+            DefaultsToggle("Keep the phone cool", key: .keepCool)
             DefaultsToggle("Show FPS", key: .perfFPS, onEnable: enablePerfOverlay)
             DefaultsToggle("Show frametime", key: .perfFrametime, onEnable: enablePerfOverlay)
             DefaultsToggle("Show frametime graph", key: .perfFrametimeGraph, onEnable: enablePerfOverlay)
@@ -243,7 +244,7 @@ struct SettingsView: View {
         } header: {
             Text("Performance overlay")
         } footer: {
-            Text("The overlay appears in-game once any metric is enabled. The live log keeps the last ~250 lines, which is useful when reporting a bug.")
+            Text("Keep the phone cool: game threads stay on the fast cores without forcing top speed, and the renderer eases off while iOS reports the phone as hot. Off: maximum speed, more heat. Applies from the next game launch. The overlay appears in-game once any metric is enabled. The live log keeps the last ~250 lines, which is useful when reporting a bug.")
         }
     }
 

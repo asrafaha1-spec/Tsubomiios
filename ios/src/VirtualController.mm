@@ -5,6 +5,7 @@
 #include <vita3k_ios/NativeFrontend.h>
 
 #include <SDL3/SDL.h>
+#include <util/thermal.h>
 
 #import <UIKit/UIKit.h>
 
@@ -39,6 +40,27 @@ static BOOL g_return_to_game_menu = NO;
 static UITapGestureRecognizer *g_three_finger_tap = nil;
 
 extern "C" void vita3k_ios_log_line(const char *message);
+
+// "Keep the phone cool" (Settings, on by default), and what iOS reports about heat and Low Power Mode.
+// Called before every game launch: reads the setting again and starts watching the system once.
+extern "C" void vita3k_ios_refresh_thermal(void) {
+    NSNumber *value = [NSUserDefaults.standardUserDefaults objectForKey:@"v3k.keepCool"];
+    thermal::keep_cool() = value ? value.boolValue : true;
+    thermal::phone_is_hot() = NSProcessInfo.processInfo.thermalState >= NSProcessInfoThermalStateSerious;
+    thermal::low_power_mode() = NSProcessInfo.processInfo.lowPowerModeEnabled;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        NSNotificationCenter *center = NSNotificationCenter.defaultCenter;
+        [center addObserverForName:NSProcessInfoThermalStateDidChangeNotification object:nil queue:nil
+                        usingBlock:^(NSNotification *) {
+            thermal::phone_is_hot() = NSProcessInfo.processInfo.thermalState >= NSProcessInfoThermalStateSerious;
+        }];
+        [center addObserverForName:NSProcessInfoPowerStateDidChangeNotification object:nil queue:nil
+                        usingBlock:^(NSNotification *) {
+            thermal::low_power_mode() = NSProcessInfo.processInfo.lowPowerModeEnabled;
+        }];
+    });
+}
 
 // Downloads a small text file; returns a malloc'd string, or NULL on any failure.
 extern "C" char *vita3k_ios_download_text(const char *url) {

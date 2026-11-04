@@ -16,6 +16,7 @@
 // 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
 #include <renderer/vulkan/pipeline_cache.h>
+#include <util/thermal.h>
 
 #include <renderer/vulkan/gxm_to_vulkan.h>
 #include <renderer/vulkan/state.h>
@@ -801,12 +802,18 @@ void PipelineCache::compiler_thread(MemState &mem) {
 
     // just a single loop, waiting for a pipeline compile request and compiling it
     CompileRequest *request;
+#if defined(VITA3K_PLATFORM_IOS)
+    int thermal_qos = -1;
+#endif
     while (true) {
         pipeline_compile_queue.wait_dequeue(consumer_token, request);
 
         if (request == nullptr)
             // use this as an instruction to stop the thread
             break;
+#if defined(VITA3K_PLATFORM_IOS)
+        thermal::follow_worker_qos(thermal_qos);
+#endif
 
         vk::Pipeline pipeline = compile_pipeline(request->type, request->render_pass, *request->vertex_program_gxm, *request->fragment_program_gxm, *request->get_record(), request->hints, mem);
         *request->pipeline = pipeline;

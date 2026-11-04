@@ -22,6 +22,7 @@ enum DefaultsKey: String {
     case coloredFaceButtons = "tsubomi.coloredFaceButtons"
     case soundEffects = "tsubomi.soundEffects"
     case liquidGlassInGame = "tsubomi.liquidGlassInGame"
+    case keepCool = "v3k.keepCool"
 
     /// Value used when the key has never been written.
     ///
@@ -32,7 +33,7 @@ enum DefaultsKey: String {
     var defaultValue: Bool {
         switch self {
         case .showTitleIDs, .showVersion, .showGameSize, .coloredFaceButtons, .wideCoverArt, .soundEffects,
-             .liquidGlassInGame:
+             .liquidGlassInGame, .keepCool:
             // Liquid Glass is the design the app is built around, so the
             // overlay ships with it on; turning it off is a battery trade the
             // player opts into.
