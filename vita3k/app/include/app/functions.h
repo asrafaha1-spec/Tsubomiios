@@ -19,6 +19,7 @@
 
 #include <app/state.h>
 #include <config/settings.h>
+#include <config/state.h>
 #include <util/fs.h>
 
 #include <chrono>
@@ -76,6 +77,17 @@ void apply_runtime_settings(EmuEnvState &emuenv);
 SettingsCommitResult commit_settings(EmuEnvState &emuenv, const Config &desired_cfg, const std::string &scope_app_path = {});
 SettingsCommitResult delete_custom_settings(EmuEnvState &emuenv, const std::string &scope_app_path);
 void set_current_config(EmuEnvState &emuenv, const std::string &app_path);
+
+// Recommended settings for a game from the game fixes list (cache/game-fixes.txt, downloaded at start;
+// a built-in copy is used until then). One line per game: "<TITLE ID> key=value key=value | note".
+// Idea and format from Vita3KiOS (oledz-i/Vita3KiOS, GPL-2.0-or-later).
+struct GameFix {
+    std::vector<std::pair<std::string, std::string>> settings;
+    std::string note;
+};
+bool find_game_fix(const fs::path &file, const std::string &title_id, GameFix &fix);
+// Applies one setting of a fix to the session config; false when the key or value is unknown.
+bool apply_game_fix_setting(Config::CurrentConfig &cc, const std::string &key, const std::string &value);
 void destroy(EmuEnvState &emuenv);
 
 bool init_apps_list(EmuEnvState &emuenv);

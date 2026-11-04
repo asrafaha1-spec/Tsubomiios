@@ -544,6 +544,7 @@ private:
 // the moment StikDebug detaches.
 extern "C" int csops(pid_t pid, unsigned int ops, void *useraddr, size_t usersize);
 // Lets the Objective-C++ overlay code write to tsubomi.log (SDL_Log there only reaches the system log).
+extern "C" char *vita3k_ios_download_text(const char *url);
 static std::atomic<bool> g_ios_rear_touch{ false };
 extern "C" void vita3k_ios_set_rear_touch(bool on) { g_ios_rear_touch.store(on); }
 extern "C" bool vita3k_ios_rear_touch(void) { return g_ios_rear_touch.load(); }
@@ -2983,6 +2984,28 @@ int main(int argc, char *argv[]) {
     // here, with the same per-game settings, without going back to the library.
     std::optional<AppLaunchRequest> pending_relaunch;
     std::optional<Vita3KIOSSettings> relaunch_settings;
+    // Fetch the game fixes list in the background; a game started later uses it.
+    // A missing or failed download keeps the previous copy (or the built-in list).
+    {
+        const std::string fixes_file = (fs::path(emuenv->cache_path.string()) / "game-fixes.txt").string();
+        std::thread([fixes_file] {
+            char *data = vita3k_ios_download_text(
+                "https://raw.githubusercontent.com/asrafaha1-spec/Tsubomiios/ios16-compat/dist/game-fixes.txt");
+            if (!data) {
+                LOG_WARN("Game fixes list download failed");
+                return;
+            }
+            const std::string text(data);
+            free(data);
+            if (text.empty() || text.size() > 1024 * 1024 || text.find('\0') != std::string::npos)
+                return;
+            std::ofstream out(fixes_file + ".new", std::ios::binary | std::ios::trunc);
+            out << text;
+            out.close();
+            std::rename((fixes_file + ".new").c_str(), fixes_file.c_str());
+            LOG_INFO("Game fixes list updated ({} bytes)", text.size());
+        }).detach();
+    }
     while (!app_terminating) {
     const bool is_relaunch = pending_relaunch.has_value();
     std::optional<AppLaunchRequest> launch_request;
@@ -3000,8 +3023,9 @@ int main(int argc, char *argv[]) {
         : std::exchange(g_pending_game_settings, std::nullopt);
     relaunch_settings = session_settings;
     const auto saved_current_config = emuenv->cfg.current_config;
+    bool game_fix_applied = false;
     const auto restore_global_config = [&] {
-        if (session_settings) {
+        if (session_settings || game_fix_applied) {
             emuenv->cfg.current_config = saved_current_config;
             emuenv->display.fps_limit.store(60, std::memory_order_relaxed);
         }
@@ -3021,8 +3045,25 @@ int main(int argc, char *argv[]) {
     // begin_launch() selects the title's upstream config profile. Apply the
     // native per-game override afterwards so setup_game_launch() cannot
     // overwrite it before Vulkan and the runtime read current_config.
-    if (session_settings)
+    if (session_settings) {
         apply_game_session_settings(*emuenv, *session_settings);
+    } else if (!launch_request->app_path.empty()
+        && !config::has_custom_config(emuenv->config_path, launch_request->app_path)) {
+        // No settings of the player's own: use the game fixes list, if it knows this game.
+        app::GameFix fix;
+        if (app::find_game_fix(fs::path(emuenv->cache_path.string()) / "game-fixes.txt", launch_request->app_path, fix)) {
+            std::string applied;
+            for (const auto &[key, value] : fix.settings) {
+                if (app::apply_game_fix_setting(emuenv->cfg.current_config, key, value))
+                    applied += fmt::format(" {}={}", key, value);
+                else
+                    LOG_WARN("Game fixes list: unknown setting {}={} for {}", key, value, launch_request->app_path);
+            }
+            game_fix_applied = true;
+            LOG_INFO("Game fixes list for {}:{}{}", launch_request->app_path, applied,
+                fix.note.empty() ? "" : " (" + fix.note + ")");
+        }
+    }
 
     IOSFrameHost frame_host(window);
 

@@ -39,6 +39,31 @@ static BOOL g_return_to_game_menu = NO;
 static UITapGestureRecognizer *g_three_finger_tap = nil;
 
 extern "C" void vita3k_ios_log_line(const char *message);
+
+// Downloads a small text file; returns a malloc'd string, or NULL on any failure.
+extern "C" char *vita3k_ios_download_text(const char *url) {
+    @autoreleasepool {
+        NSURL *nsurl = [NSURL URLWithString:[NSString stringWithUTF8String:url]];
+        if (!nsurl) return nullptr;
+        NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:nsurl
+            cachePolicy:NSURLRequestReloadIgnoringLocalCacheData timeoutInterval:15];
+        __block NSData *body = nil;
+        dispatch_semaphore_t done = dispatch_semaphore_create(0);
+        [[[NSURLSession sharedSession] dataTaskWithRequest:req
+            completionHandler:^(NSData *d, NSURLResponse *r, NSError *e) {
+                if (!e && [r isKindOfClass:[NSHTTPURLResponse class]]
+                    && ((NSHTTPURLResponse *)r).statusCode == 200)
+                    body = d;
+                dispatch_semaphore_signal(done);
+            }] resume];
+        dispatch_semaphore_wait(done, dispatch_time(DISPATCH_TIME_NOW, 20 * NSEC_PER_SEC));
+        if (!body || body.length == 0 || body.length > 1024 * 1024) return nullptr;
+        char *out = (char *)malloc(body.length + 1);
+        memcpy(out, body.bytes, body.length);
+        out[body.length] = 0;
+        return out;
+    }
+}
 extern "C" void vita3k_ios_set_rear_touch(bool on);
 extern "C" bool vita3k_ios_rear_touch(void);
 static void performOnMainThread(dispatch_block_t block);

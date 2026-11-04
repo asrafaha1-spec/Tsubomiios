@@ -1,0 +1,26 @@
+# Tsubomi game fixes
+#
+# Recommended settings per game. The app downloads this file when it starts and applies a game's
+# line when the game starts, unless the player has given that game settings of their own.
+# Edit it on GitHub: the change is picked up the next time the app starts, no new build needed.
+#
+# One line per game:   TITLE_ID  setting=value  setting=value  | note
+#
+# Settings: memory-mapping, native-buffer, surface-sync, high-accuracy, async-shaders, texture-cache,
+#           shader-cache, fps-hack, cpu-opt, v-sync, stretch (on/off), resolution (0.5 to 4),
+#           screen-filter (Nearest, Bilinear, Bicubic, FXAA)
+# Lines starting with # are ignored.
+#
+# Starting entries are from Vita3KiOS (oledz-i/Vita3KiOS, GPL-2.0-or-later); they were tested on an
+# iPhone 16 Pro, so tell us if one does not help on your device.
+
+# Gravity Rush (US, EU): without surface sync the bloom builds up and scenes are far too bright
+PCSA00011 surface-sync=on | Surface sync on: fixes the over-bright bloom
+PCSF00024 surface-sync=on | Surface sync on: fixes the over-bright bloom
+
+# Persona 4 Golden (US, EU): vertex spikes in 3D scenes with GPU memory mapping
+PCSE00120 memory-mapping=off | GPU memory mapping off: removes the spikes in 3D scenes
+PCSB00245 memory-mapping=off | GPU memory mapping off: removes the spikes in 3D scenes
+
+# Madden NFL 13
+PCSE00084 memory-mapping=on native-buffer=on surface-sync=on high-accuracy=off async-shaders=on cpu-opt=on | Native buffer with surface sync; background shaders; high accuracy off

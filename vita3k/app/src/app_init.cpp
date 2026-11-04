@@ -76,6 +76,7 @@
 
 #include <algorithm>
 #include <fstream>
+#include <sstream>
 
 namespace app {
 
@@ -231,6 +232,92 @@ static Config::CurrentConfig get_runtime_current_config_after_save(
     }
 
     return runtime_current;
+}
+
+// Used until the list has been downloaded once (same lines as dist/game-fixes.txt)
+static constexpr const char *DEFAULT_GAME_FIXES = R"(PCSA00011 surface-sync=on | Surface sync on: fixes the over-bright bloom
+PCSF00024 surface-sync=on | Surface sync on: fixes the over-bright bloom
+PCSE00120 memory-mapping=off | GPU memory mapping off: removes the spikes in 3D scenes
+PCSB00245 memory-mapping=off | GPU memory mapping off: removes the spikes in 3D scenes
+PCSE00084 memory-mapping=on native-buffer=on surface-sync=on high-accuracy=off async-shaders=on cpu-opt=on | Native buffer with surface sync; background shaders; high accuracy off
+)";
+
+bool find_game_fix(const fs::path &file, const std::string &title_id, GameFix &fix) {
+    std::ifstream file_in(file.string());
+    std::istringstream default_in(DEFAULT_GAME_FIXES);
+    std::istream &in = file_in ? static_cast<std::istream &>(file_in) : static_cast<std::istream &>(default_in);
+    std::string line;
+    while (std::getline(in, line)) {
+        if (!line.empty() && line.back() == '\r')
+            line.pop_back();
+        const auto first = line.find_first_not_of(" \t");
+        if (first == std::string::npos || line[first] == '#')
+            continue;
+        std::string note;
+        if (const auto bar = line.find('|'); bar != std::string::npos) {
+            note = line.substr(bar + 1);
+            line.resize(bar);
+            const auto note_start = note.find_first_not_of(" \t");
+            note = note_start == std::string::npos ? std::string() : note.substr(note_start);
+        }
+        std::istringstream tokens(line);
+        std::string id;
+        tokens >> id;
+        std::transform(id.begin(), id.end(), id.begin(), [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
+        if (id != title_id)
+            continue;
+        fix = {};
+        fix.note = note;
+        std::string token;
+        while (tokens >> token) {
+            const auto eq = token.find('=');
+            if (eq != std::string::npos && eq > 0)
+                fix.settings.emplace_back(token.substr(0, eq), token.substr(eq + 1));
+        }
+        return true;
+    }
+    return false;
+}
+
+bool apply_game_fix_setting(Config::CurrentConfig &cc, const std::string &key, const std::string &value) {
+    const bool on = value == "on" || value == "true" || value == "1" || value == "yes";
+    const bool off = value == "off" || value == "false" || value == "0" || value == "no";
+    if (!on && !off && key != "resolution" && key != "screen-filter")
+        return false;
+    if (key == "memory-mapping")
+        cc.memory_mapping = on ? (cc.memory_mapping == "page-table" ? "page-table" : "double-buffer") : "disabled";
+    else if (key == "native-buffer")
+        cc.memory_mapping = on ? "page-table" : (cc.memory_mapping == "disabled" ? "disabled" : "double-buffer");
+    else if (key == "surface-sync")
+        cc.disable_surface_sync = !on;
+    else if (key == "high-accuracy")
+        cc.high_accuracy = on;
+    else if (key == "async-shaders")
+        cc.async_pipeline_compilation = on;
+    else if (key == "texture-cache")
+        cc.texture_cache = on;
+    else if (key == "shader-cache")
+        cc.shader_cache = on;
+    else if (key == "fps-hack")
+        cc.fps_hack = on;
+    else if (key == "cpu-opt")
+        cc.cpu_opt = on;
+    else if (key == "fast-cpu" || key == "accurate-cpu") {
+        // not available in this build; accepted so a shared list stays valid
+    } else if (key == "v-sync")
+        cc.v_sync = on;
+    else if (key == "stretch")
+        cc.stretch_the_display_area = on;
+    else if (key == "resolution") {
+        const float multiplier = std::strtof(value.c_str(), nullptr);
+        if (multiplier < 0.5f || multiplier > 4.0f)
+            return false;
+        cc.resolution_multiplier = multiplier;
+    } else if (key == "screen-filter")
+        cc.screen_filter = value;
+    else
+        return false;
+    return true;
 }
 
 void set_current_config(EmuEnvState &emuenv, const std::string &app_path) {
