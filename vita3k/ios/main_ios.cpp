@@ -250,6 +250,15 @@ int main(int argc, char *argv[]) {
                         os_proc_available_memory() / (1024 * 1024));
                     stall_logged = true;
                     record_status(-1.0);
+                    // Where every guest thread is, to tell what the game is waiting for
+                    std::vector<ThreadStatePtr> frozen_threads;
+                    {
+                        const std::lock_guard<std::mutex> kernel_lock(emuenv->kernel.mutex);
+                        for (const auto &entry : emuenv->kernel.threads)
+                            frozen_threads.push_back(entry.second);
+                    }
+                    for (const ThreadStatePtr &frozen : frozen_threads)
+                        LOG_INFO("Frozen game thread {}", frozen->diagnostic_line());
                 }
                 if (ios::memory_warning_count() != memory_warnings) {
                     LOG_WARN("Watchdog: iOS warned that memory is low, {} MiB left", os_proc_available_memory() / (1024 * 1024));

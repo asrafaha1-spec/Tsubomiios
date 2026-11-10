@@ -108,6 +108,8 @@ struct ThreadState {
     ThreadStatus get_status() const;
     // The thread's info, as sceKernelGetThreadInfo reports it
     SceKernelThreadInfo info();
+    // One line for the freeze diagnostics: name, state, what it waits on, where it is
+    std::string diagnostic_line();
     // The room left on the stack, all of it for a dormant thread
     int stack_free_size() const;
     // A word of the thread's TLS, by its TLS_* index

@@ -616,6 +616,15 @@ SceKernelThreadInfo ThreadState::info() {
     return info;
 }
 
+std::string ThreadState::diagnostic_line() {
+    const SceKernelThreadInfo thread_info = info();
+    // Reading the registers of a thread that runs is racy, but this is only for a frozen game
+    return fmt::format("#{} {} status={} waitType={} waitId={} prio={} affinity={} pc={} lr={} sp={}", id, name,
+        thread_info.status, log_hex(thread_info.waitType), log_hex(static_cast<uint32_t>(thread_info.waitId)),
+        thread_info.currentPriority, log_hex(static_cast<uint32_t>(thread_info.currentCpuAffinityMask)),
+        log_hex(read_pc(*cpu)), log_hex(read_lr(*cpu)), log_hex(read_sp(*cpu)));
+}
+
 int ThreadState::get_priority() const {
     const std::lock_guard<std::mutex> lock(mutex);
     return priority;
