@@ -18,12 +18,14 @@
 #pragma once
 
 #include <cpu/common.h>
+#include <kernel/thread/core_token.h>
 #include <kernel/thread/wait_queue.h>
 #include <kernel/types.h>
 #include <mem/block.h>
 #include <mem/ptr.h>
 
 #include <algorithm>
+#include <atomic>
 #include <condition_variable>
 #include <initializer_list>
 #include <list>
@@ -31,6 +33,7 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <thread>
 
 struct ThreadState;
 using ThreadStatePtr = std::shared_ptr<ThreadState>;
@@ -117,6 +120,12 @@ struct ThreadState {
     int change_priority(int new_priority);
     // Changes the cores the thread may run on, and the ones its TLS shows. Returns the old mask.
     SceInt32 change_affinity_mask(SceInt32 new_affinity_mask);
+
+    // Core serialization. No-ops for threads without a core token. acquire_core() is called from the
+    // thread's own host thread with no lock held; release_core() only does something when called by the
+    // host thread that holds the token.
+    void acquire_core();
+    void release_core();
 
     // Waits
     // Blocks this thread until the deadline passes.
@@ -259,6 +268,12 @@ private:
     // Priority and affinity
     int priority;
     SceInt32 affinity_mask;
+
+    // Core serialization (see core_token.h): shared with every thread pinned to the same core, null when
+    // this thread is not serialized.
+    std::shared_ptr<CoreToken> core_token;
+    std::atomic<bool> core_token_held{ false };
+    std::atomic<std::thread::id> core_token_owner{};
 
     // Waits
     // What the thread waits on while waiting, empty otherwise

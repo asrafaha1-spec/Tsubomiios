@@ -22,6 +22,7 @@
 #include <kernel/debugger.h>
 #include <kernel/object_store.h>
 #include <kernel/sync_primitives.h>
+#include <kernel/thread/core_token.h>
 #include <kernel/types.h>
 #include <mem/allocator.h>
 #include <mem/block.h>
@@ -145,6 +146,9 @@ struct KernelState {
     CorenumAllocator corenum_allocator;
     CallImportFunc call_import;
 
+    std::mutex core_token_mutex;
+    std::map<SceInt32, std::shared_ptr<CoreToken>> core_tokens;
+
     // Thumb NOP and WFI that guest functions called by the kernel return to
     Block halt_instruction;
 
@@ -177,6 +181,8 @@ struct KernelState {
     ThreadStatePtr create_thread(MemState &mem, const char *name, Ptr<const void> entry_point, int init_priority, SceInt32 affinity_mask, int stack_size, SceUInt32 attr);
 
     ThreadStatePtr get_thread(SceUID thread_id);
+    // One token per single-core affinity mask, shared by the threads serialized on that core.
+    std::shared_ptr<CoreToken> get_core_token(SceInt32 affinity_mask);
 
     // Creates a callback owned by thread and returns its UID.
     SceUID create_callback(const ThreadStatePtr &thread, const char *name, Ptr<SceKernelCallbackFunction> func, Ptr<void> common);

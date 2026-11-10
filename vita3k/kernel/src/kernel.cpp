@@ -164,6 +164,14 @@ uint64_t KernelState::process_time_at(uint64_t clock_time) const {
     return clock_time - (start_tick - base_tick.tick);
 }
 
+std::shared_ptr<CoreToken> KernelState::get_core_token(SceInt32 affinity_mask) {
+    const std::lock_guard<std::mutex> lock(core_token_mutex);
+    auto &token = core_tokens[affinity_mask];
+    if (!token)
+        token = std::make_shared<CoreToken>();
+    return token;
+}
+
 ThreadStatePtr KernelState::get_thread(SceUID thread_id) {
     const ThreadStatePtr thread = lock_and_find(thread_id, threads, mutex);
     // A deleted thread stays in threads until its host thread ends, but guest calls can't find it
