@@ -26,8 +26,7 @@
 namespace std {
 inline namespace __1 {
 
-__attribute__((noreturn, visibility("default")))
-void __libcpp_verbose_abort(const char *format, ...);
+__attribute__((noreturn, visibility("default"))) void __libcpp_verbose_abort(const char *format, ...);
 
 void __libcpp_verbose_abort(const char *format, ...) {
     va_list args;
@@ -39,14 +38,16 @@ void __libcpp_verbose_abort(const char *format, ...) {
     abort();
 }
 
-
 // ---- floating-point std::to_chars ------------------------------------------
 // Local mirrors of the libc++ types. Layout/ABI matches (errc is an int enum,
 // to_chars_result is {char*, errc}); only the mangled names of the functions
 // below matter to the linker, and they depend on std::__1::chars_format.
 
 enum class errc : int { value_too_large = EOVERFLOW };
-enum class chars_format : int { scientific = 1, fixed = 2, hex = 4, general = 3 };
+enum class chars_format : int { scientific = 1,
+    fixed = 2,
+    hex = 4,
+    general = 3 };
 struct to_chars_result {
     char *ptr;
     errc ec;
@@ -65,7 +66,7 @@ bool round_trips(const char *text, long double v, int kind) {
 // Writes into tmp using conversion 'g', 'f', 'e' or 'a'; precision < 0 means
 // "shortest representation that round-trips".
 int render(char *tmp, size_t cap, long double v, char conv, int precision, int kind) {
-    char fmt[8] = {'%', '.', '*', 'L', conv, 0};
+    char fmt[8] = { '%', '.', '*', 'L', conv, 0 };
     if (!isfinite(static_cast<double>(v))) {
         return snprintf(tmp, cap, "%Lg", v);
     }
@@ -107,10 +108,10 @@ to_chars_result emit(char *first, char *last, long double v, chars_format f, int
         }
     }
     if (n < 0 || n > last - first) {
-        return {last, errc::value_too_large};
+        return { last, errc::value_too_large };
     }
     memcpy(first, src, static_cast<size_t>(n));
-    return {first + n, errc(0)};
+    return { first + n, errc(0) };
 }
 
 } // namespace

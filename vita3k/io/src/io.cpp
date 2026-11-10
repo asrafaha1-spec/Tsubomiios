@@ -73,7 +73,7 @@ static bool resolve_path_case_insensitive(const fs::path &path, fs::path &resolv
     fs::path current = path.root_path();
     for (const auto &component : path.relative_path()) {
         fs::path candidate = current / component;
-        boost::system::error_code ec;
+        std::error_code ec;
         if (fs::exists(candidate, ec)) {
             current = std::move(candidate);
             continue;
