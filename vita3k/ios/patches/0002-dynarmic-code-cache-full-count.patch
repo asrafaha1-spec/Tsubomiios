@@ -1,0 +1,67 @@
+diff --git a/src/dynarmic/backend/arm64/a32_interface.cpp b/src/dynarmic/backend/arm64/a32_interface.cpp
+index 6b38c41..147e669 100644
+--- a/src/dynarmic/backend/arm64/a32_interface.cpp
++++ b/src/dynarmic/backend/arm64/a32_interface.cpp
+@@ -60,6 +60,10 @@ struct Jit::Impl final {
+         return hr;
+     }
+ 
++    std::uint64_t CodeCacheFullClears() const {
++        return current_address_space.cache_full_clears;
++    }
++
+     void ClearCache() {
+         std::unique_lock lock{invalidation_mutex};
+         invalidate_entire_cache = true;
+@@ -168,6 +172,10 @@ Jit::Jit(UserConfig conf)
+ 
+ Jit::~Jit() = default;
+ 
++std::uint64_t Jit::CodeCacheFullClears() const {
++    return impl->CodeCacheFullClears();
++}
++
+ HaltReason Jit::Run() {
+     return impl->Run();
+ }
+diff --git a/src/dynarmic/backend/arm64/address_space.cpp b/src/dynarmic/backend/arm64/address_space.cpp
+index 84df25c..2810233 100644
+--- a/src/dynarmic/backend/arm64/address_space.cpp
++++ b/src/dynarmic/backend/arm64/address_space.cpp
+@@ -110,6 +110,8 @@ size_t AddressSpace::GetRemainingSize() {
+ EmittedBlockInfo AddressSpace::Emit(IR::Block block) {
+     if (GetRemainingSize() < 1024 * 1024) {
+         ClearCache();
++        // Vita3K iOS: counted so a thread that keeps filling its cache can move to a bigger one
++        cache_full_clears++;
+     }
+ 
+     UnprotectCodeMemory();
+diff --git a/src/dynarmic/backend/arm64/address_space.h b/src/dynarmic/backend/arm64/address_space.h
+index 835566b..eeddc49 100644
+--- a/src/dynarmic/backend/arm64/address_space.h
++++ b/src/dynarmic/backend/arm64/address_space.h
+@@ -43,6 +43,9 @@ public:
+ 
+     void ClearCache();
+ 
++    // Vita3K iOS: times the cache filled up and was wiped to make room
++    std::uint64_t cache_full_clears = 0;
++
+     void DumpDisassembly() const;
+ 
+ protected:
+diff --git a/src/dynarmic/interface/A32/a32.h b/src/dynarmic/interface/A32/a32.h
+index e1c5b40..1ffb5f9 100644
+--- a/src/dynarmic/interface/A32/a32.h
++++ b/src/dynarmic/interface/A32/a32.h
+@@ -40,6 +40,9 @@ public:
+      */
+     void ClearCache();
+ 
++    /// Vita3K iOS (ARM64 backend only): how many times the code cache filled up and was wiped
++    std::uint64_t CodeCacheFullClears() const;
++
+     /**
+      * Invalidate the code cache at a range of addresses.
+      * @param start_address The starting address of the range to invalidate.

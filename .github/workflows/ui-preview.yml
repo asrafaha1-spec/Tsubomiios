@@ -1,0 +1,42 @@
+name: UI preview
+
+# Screenshots of the PS Vita home screen from the iOS simulator (Swift frontend built against stubs,
+# fake games), pushed to the ui-previews branch so changes can be checked before they ship.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'vita3k/ios/ui/**'
+      - '.ci/ui-preview/**'
+      - '.github/workflows/ui-preview.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: ui-preview
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  preview:
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build and take screenshots
+        run: bash .ci/ui-preview/run.sh "$RUNNER_TEMP/previews"
+      - name: Publish to the ui-previews branch
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd "$RUNNER_TEMP/previews" || exit 0
+          ls *.png > /dev/null 2>&1 || exit 0
+          echo "${GITHUB_SHA}" > COMMIT
+          git init -q -b ui-previews
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .
+          git commit -qm "UI previews for ${GITHUB_SHA::7} [skip ci]"
+          git push -qf "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:ui-previews

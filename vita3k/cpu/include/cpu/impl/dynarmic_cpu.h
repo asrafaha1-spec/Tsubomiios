@@ -1,0 +1,114 @@
+// Vita3K emulator project
+// Copyright (C) 2026 Vita3K team
+//
+// This program is free software; you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation; either version 2 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License along
+// with this program; if not, write to the Free Software Foundation, Inc.,
+// 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+
+#pragma once
+
+#include <dynarmic/interface/A32/a32.h>
+
+#include <cpu/functions.h>
+#include <cpu/impl/interface.h>
+
+#include <memory>
+#include <mutex>
+
+class ArmDynarmicCallback;
+class ArmDynarmicCP15;
+
+class DynarmicCPU : public CPUInterface {
+    friend class ArmDynarmicCallback;
+
+    CPUState *parent;
+
+    std::unique_ptr<Dynarmic::A32::Jit> jit;
+    std::unique_ptr<ArmDynarmicCallback> cb;
+    std::shared_ptr<ArmDynarmicCP15> cp15;
+
+    std::size_t core_id = 0;
+
+    bool halted = false;
+    bool break_ = false;
+    // The last run or step stopped at an SVC
+    bool svc_called = false;
+
+    bool log_mem = false;
+    bool log_code = false;
+    bool cpu_opt;
+
+#if defined(VITA3K_PLATFORM_IOS)
+    // Size of this thread's JIT code cache. A thread that fills its cache moves to a bigger one
+    // (see promote_code_cache): the cache is wiped and everything recompiled each time it fills,
+    // which games running a lot of code on one thread felt as a hitch every few seconds.
+    std::size_t code_cache_size = 0;
+    bool promotion_logged = false;
+    // stop() may come from another thread while the JIT is being replaced
+    std::mutex jit_swap_mutex;
+    bool halt_pending = false;
+    void promote_code_cache();
+#endif
+
+    std::unique_ptr<Dynarmic::A32::Jit> make_jit();
+
+public:
+    DynarmicCPU(CPUState *state, std::size_t processor_id, bool cpu_opt);
+    ~DynarmicCPU() override;
+    CPUStop run() override;
+    CPUStop step() override;
+    void stop() override;
+
+    uint32_t get_reg(uint8_t idx) override;
+    void set_reg(uint8_t idx, uint32_t val) override;
+
+    uint32_t get_sp() override;
+    void set_sp(uint32_t val) override;
+
+    uint32_t get_pc() override;
+    void set_pc(uint32_t val) override;
+
+    uint32_t get_lr() override;
+    void set_lr(uint32_t val) override;
+
+    uint32_t get_cpsr() override;
+    void set_cpsr(uint32_t val) override;
+
+    uint32_t get_tpidruro() override;
+    void set_tpidruro(uint32_t val) override;
+
+    uint32_t get_tpidrurw() override;
+    void set_tpidrurw(uint32_t val) override;
+
+    float get_float_reg(uint8_t idx) override;
+    void set_float_reg(uint8_t idx, float val) override;
+
+    uint32_t get_fpscr() override;
+    void set_fpscr(uint32_t val) override;
+
+    CPUContext save_context() override;
+    void load_context(const CPUContext &ctx) override;
+
+    bool is_thumb_mode() override;
+
+    bool hit_breakpoint() override;
+    void trigger_breakpoint() override;
+    void set_log_code(bool log) override;
+    void set_log_mem(bool log) override;
+    bool get_log_mem() override;
+
+    void clear_exclusive() override;
+    void reset_for_reuse() override;
+    std::size_t processor_id() const override;
+    void invalidate_jit_cache(Address start, size_t length) override;
+};

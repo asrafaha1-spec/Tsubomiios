@@ -1,0 +1,31 @@
+# Vita3KiOS game fixes
+#
+# Recommended settings per game. The app downloads this file when the library opens and applies a
+# game's line when it starts, unless the player has given that game settings of their own.
+# Edit it on GitHub: everyone gets the change the next time they open the app, no new build needed.
+#
+# One line per game:   TITLE_ID  setting=value  setting=value  | note shown in the game's settings
+#
+# Settings: memory-mapping, native-buffer, surface-sync, high-accuracy, async-shaders, texture-cache,
+#           shader-cache, fps-hack, cpu-opt, stretch, fast-cpu, accurate-cpu, precise-math,
+#           vertex-realign (on/off), resolution (0.5 to 4), screen-filter (Nearest, Bilinear, Bicubic, FXAA)
+#           precise-math=on: no Metal fast math at all (lighting that is too bright or flickers)
+#           vertex-realign=off: only if a game's models break since vertex realignment (v1.2.0)
+# Lines starting with # are ignored.
+
+# Gravity Rush (US, EU): without surface sync the bloom builds up and scenes are far too bright
+PCSA00011 surface-sync=on | Surface sync on: fixes the over-bright bloom (Vita3K/compatibility#177)
+PCSF00024 surface-sync=on | Surface sync on: fixes the over-bright bloom (Vita3K/compatibility#177)
+
+# Persona 4 Golden (US, EU): vertex spikes in 3D scenes with GPU memory mapping
+PCSE00120 memory-mapping=off precise-math=on | GPU memory mapping off: removes the spikes in 3D scenes. Precise shader math: for the white ground in the rainy morning scene (fast maths can turn lighting into NaN, drawn white)
+PCSB00245 memory-mapping=off precise-math=on | GPU memory mapping off: removes the spikes in 3D scenes. Precise shader math: for the white ground in the rainy morning scene (fast maths can turn lighting into NaN, drawn white)
+
+# Madden NFL 13: players are skinned on the GPU (needs memory mapping); surface sync crashed it at
+# boot or blacked out the field; shaders compiled before drawing so nothing goes missing
+PCSE00084 memory-mapping=on native-buffer=on surface-sync=on high-accuracy=off async-shaders=on cpu-opt=on fast-cpu=off | Native buffer with surface sync: the stadium screens and other images the game draws for itself show up (surface sync crashed with double buffer); background shaders; high accuracy off
+
+# LittleBigPlanet: device lost at boot with memory mapping + double buffer; Sackboy invisible with mapping off.
+# Same recipe as Madden (GPU-skinned characters): mapping with native buffer and surface sync
+PCSA00017 memory-mapping=on native-buffer=on surface-sync=on async-shaders=on | Memory mapping with Native buffer: Sackboy is drawn by the GPU from mapped memory (invisible with mapping off), and mapping failed at boot only with Double buffer. Surface sync on: grey/white screen without it (Vita3K/compatibility#188). Background shaders for fewer hitches
+PCSF00021 memory-mapping=on native-buffer=on surface-sync=on async-shaders=on | Memory mapping with Native buffer: Sackboy is drawn by the GPU from mapped memory (invisible with mapping off), and mapping failed at boot only with Double buffer. Surface sync on: grey/white screen without it (Vita3K/compatibility#188). Background shaders for fewer hitches

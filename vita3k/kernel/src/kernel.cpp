@@ -1,0 +1,375 @@
+// Vita3K emulator project
+// Copyright (C) 2026 Vita3K team
+//
+// This program is free software; you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation; either version 2 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License along
+// with this program; if not, write to the Free Software Foundation, Inc.,
+// 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+
+#ifdef TRACY_ENABLE
+#include <tracy/Tracy.hpp>
+#endif
+
+#include <cpu/common.h>
+#include <kernel/state.h>
+#include <mem/functions.h>
+
+#include <kernel/thread/thread_state.h>
+
+#include <cpu/functions.h>
+#include <cpu/state.h>
+#include <mem/ptr.h>
+#include <util/lock_and_find.h>
+#include <util/log.h>
+#include <util/thermal.h>
+
+#include <chrono>
+#include <string>
+#include <thread>
+
+#if defined(VITA3K_PLATFORM_IOS)
+#include <pthread.h>
+#include <sys/qos.h>
+#endif
+
+#include <SDL3/SDL_mutex.h>
+#include <SDL3/SDL_thread.h>
+
+int CorenumAllocator::new_corenum() {
+    const std::lock_guard<std::mutex> guard(lock);
+
+    uint32_t size = 1;
+    return alloc.allocate_from(0, size);
+}
+
+void CorenumAllocator::free_corenum(const int num) {
+    const std::lock_guard<std::mutex> guard(lock);
+    alloc.free(num, 1);
+}
+
+void CorenumAllocator::set_max_core_count(const std::size_t max) {
+    const std::lock_guard<std::mutex> guard(lock);
+    alloc.set_maximum(max);
+}
+
+// TODO implement cross platform debug thread name setter and eliminate SDL thread
+struct ThreadParams {
+    KernelState *kernel = nullptr;
+    // Passed in rather than looked up, since the guest may delete the thread before it starts
+    ThreadStatePtr thread;
+    SDL_Semaphore *host_may_destroy_params = nullptr;
+};
+
+static int SDLCALL thread_function(void *data) {
+    assert(data != nullptr);
+    ThreadParams params = *static_cast<const ThreadParams *>(data);
+    SDL_SignalSemaphore(params.host_may_destroy_params);
+    ThreadStatePtr thread = std::move(params.thread);
+#if defined(VITA3K_PLATFORM_IOS)
+    // Guest threads are the game itself: ask iOS for the performance cores instead of letting the
+    // scheduler park them on efficiency cores (default QoS). With "Keep the phone cool" one step below
+    // the top class (see util/thermal.h).
+    pthread_set_qos_class_self_np(thermal::game_thread_qos(), 0);
+#endif
+#ifdef TRACY_ENABLE
+    if (!thread->name.empty()) {
+        tracy::SetThreadName(thread->name.c_str());
+    } else {
+        std::string th_name = "TID:" + std::to_string(thread->id);
+        tracy::SetThreadName(th_name.c_str());
+    }
+#endif
+
+    thread->run_loop();
+    const uint32_t r0 = read_reg(*thread->cpu, 0);
+    const SceUID id = thread->id;
+    const int processor_id = get_processor_id(*thread->cpu);
+    // release our reference first so the erase below destroys the ThreadState before process_exit() is woken
+    thread.reset();
+
+    {
+        std::lock_guard<std::mutex> lock(params.kernel->mutex);
+        params.kernel->threads.erase(id);
+        params.kernel->corenum_allocator.free_corenum(processor_id);
+        params.kernel->thread_deleted_cond.notify_all();
+    }
+
+    return r0;
+}
+
+KernelState::KernelState()
+    : debugger(*this) {
+}
+
+bool KernelState::init(MemState &mem, const CallImportFunc &call_import, bool cpu_opt) {
+    corenum_allocator.set_max_core_count(MAX_CORE_COUNT);
+    start_tick = rtc_get_ticks(rtc_base_ticks());
+    base_tick = { rtc_base_ticks() };
+    this->call_import = call_import;
+    this->cpu_opt = cpu_opt;
+
+    // Generate halt instruction (NOP + WFI)
+    halt_instruction = alloc_block(mem, 4, "halt_instruction");
+    const auto halt_ptr = halt_instruction.get_ptr<uint16_t>().get(mem);
+    halt_ptr[0] = 0xBF00; // NOP
+    halt_ptr[1] = 0xBF30; // WFI
+
+    return true;
+}
+
+void KernelState::load_process_param(MemState &mem, Ptr<uint32_t> ptr) {
+    const SceProcessParam *param = ptr.cast<SceProcessParam>().get(mem);
+    if (param->version == 0) {
+        // Homebrews built with old vitasdk
+        process_param = nullptr;
+        return;
+    }
+    process_param = ptr.cast<SceProcessParam>();
+    // VAR_NID(__sce_libcparam, 0xDF084DFA)
+    // no memory leak because we don't allocate memory for this variable intially
+    export_nids[0xDF084DFA] = process_param.get(mem)->sce_libc_param.address();
+}
+
+void KernelState::set_memory_watch(bool enabled) {
+    std::lock_guard<std::mutex> lock(mutex);
+    for (const auto &thread : threads) {
+        auto &cpu = *thread.second->cpu;
+        if (enabled != get_log_mem(cpu)) {
+            if (enabled)
+                set_log_mem(cpu, true);
+            else
+                set_log_mem(cpu, false);
+        }
+    }
+}
+
+void KernelState::invalidate_jit_cache(Address start, size_t length) {
+    std::lock_guard<std::mutex> lock(mutex);
+    for (const auto &[_, thread] : threads) {
+        ::invalidate_jit_cache(*thread->cpu, start, length);
+    }
+}
+
+uint64_t KernelState::process_time_at(uint64_t clock_time) const {
+    // The process started at the host clock time start_tick - base_tick.tick
+    return clock_time - (start_tick - base_tick.tick);
+}
+
+ThreadStatePtr KernelState::get_thread(SceUID thread_id) {
+    const ThreadStatePtr thread = lock_and_find(thread_id, threads, mutex);
+    // A deleted thread stays in threads until its host thread ends, but guest calls can't find it
+    if (thread && thread->get_status() == ThreadStatus::deleted)
+        return nullptr;
+    return thread;
+}
+
+SceUID KernelState::create_callback(const ThreadStatePtr &thread, const char *name, Ptr<SceKernelCallbackFunction> func, Ptr<void> common) {
+    const CallbackPtr cb = std::make_shared<Callback>(thread, name, func, common);
+    const SceUID uid = objects.add(cb, get_next_uid());
+    thread->add_callback(cb);
+    return uid;
+}
+
+bool KernelState::delete_callback(SceUID id, SceUID deleter) {
+    return objects.remove<Callback>(id, deleter);
+}
+
+ThreadStatePtr KernelState::create_thread(MemState &mem, const char *name, Ptr<const void> entry_point, int init_priority, SceInt32 affinity_mask, int stack_size, SceUInt32 attr) {
+    const SceUID id = get_next_uid();
+    int core_num = corenum_allocator.new_corenum();
+    if (core_num < 0) {
+        LOG_ERROR("Out of core number to allocate, use 0");
+        core_num = 0;
+    }
+    CPUStatePtr cpu;
+#if defined(VITA3K_PLATFORM_IOS)
+    // iOS 26+: every guest thread needs one of the JIT regions prepared at launch. A game that keeps
+    // more threads alive than there are regions (Disgaea 3) used to bring the app down with an
+    // uncaught bad_alloc: fail this one thread creation instead, as a Vita out of memory would.
+    // Games with worker pools (Dynasty Warriors 8: dozens of short-lived collision workers) end
+    // threads as fast as they start them, so when every region is taken one usually comes back within
+    // a few milliseconds: wait for it (up to half a second) before giving up on the thread.
+    for (int attempt = 0;; attempt++) {
+        try {
+            cpu = init_cpu(cpu_opt, id, static_cast<std::size_t>(core_num), mem);
+            if (attempt > 0)
+                LOG_INFO("Thread \"{}\" got a JIT region after waiting {} ms", name ? name : "", attempt * 10);
+            break;
+        } catch (const std::exception &e) {
+            if (attempt < 50) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                continue;
+            }
+            LOG_ERROR("Thread \"{}\" could not be created: no JIT memory left ({}). Too many threads are running at once.", name ? name : "", e.what());
+            corenum_allocator.free_corenum(core_num);
+            return nullptr;
+        }
+    }
+#else
+    cpu = init_cpu(cpu_opt, id, static_cast<std::size_t>(core_num), mem);
+#endif
+    if (!cpu) {
+        corenum_allocator.free_corenum(core_num);
+        return nullptr;
+    }
+    // A guest function the kernel calls returns to the halt instruction, in Thumb mode
+    cpu->return_pc = halt_instruction.get() | 1;
+    set_log_code(*cpu, debugger.watch_code);
+    set_log_mem(*cpu, debugger.watch_memory);
+    ThreadStatePtr thread = std::make_shared<ThreadState>(id, *this, mem, std::move(cpu), name, entry_point.address(), init_priority, affinity_mask, stack_size, attr);
+
+    {
+        const std::lock_guard<std::mutex> lock(mutex);
+        threads.emplace(thread->id, thread);
+        // A new thread starts with the holds every thread has
+        thread->set_paused(threads_paused);
+        thread->set_suspended(threads_suspended);
+        if (process_exiting)
+            thread->remove();
+    }
+
+    ThreadParams params;
+    params.kernel = this;
+    params.thread = thread;
+
+    params.host_may_destroy_params = SDL_CreateSemaphore(0);
+    SDL_DetachThread(SDL_CreateThread(&thread_function, thread->name.c_str(), &params));
+    SDL_WaitSemaphore(params.host_may_destroy_params);
+    SDL_DestroySemaphore(params.host_may_destroy_params);
+
+    return thread;
+}
+
+Ptr<Ptr<void>> KernelState::get_thread_tls_addr(MemState &mem, SceUID thread_id, int key) {
+    Ptr<Ptr<void>> address(0);
+    // magic numbers taken from decompiled source. There is 0x400 unused bytes of unknown usage
+    if (key <= 0x100 && key >= 0) {
+        const ThreadStatePtr thread = get_thread(thread_id);
+        address = thread->tls.get_ptr<Ptr<void>>() + key;
+    } else {
+        LOG_ERROR("Wrong tls slot index. TID:{} index:{}", thread_id, key);
+    }
+    return address;
+}
+
+void KernelState::request_process_exit(int res, std::optional<AppLaunchRequest> relaunch) {
+    if (process_exit_callback)
+        process_exit_callback(res, std::move(relaunch));
+}
+
+void KernelState::process_exit() {
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        process_exiting = true;
+        for (auto &[_, thread] : threads)
+            thread->remove();
+    }
+
+    std::unique_lock<std::mutex> lock(mutex);
+#if defined(VITA3K_PLATFORM_IOS)
+    if (threads_left_running)
+        return; // already waited once this shutdown
+    // A guest thread stuck in a host call never ends: waiting for it forever left Quit hanging until the
+    // app was killed. Give the threads a few seconds, then go back to the library without them.
+    if (!thread_deleted_cond.wait_for(lock, std::chrono::seconds(5), [this] { return threads.empty(); })) {
+        std::string names;
+        for (const auto &[id, thread] : threads)
+            names += fmt::format("{}{} (#{})", names.empty() ? "" : ", ", thread->name, id);
+        LOG_ERROR("Shutdown: {} guest thread(s) did not end within 5 seconds, leaving them: {}", threads.size(), names);
+        threads_left_running = true;
+        return;
+    }
+#else
+    thread_deleted_cond.wait(lock, [this] { return threads.empty(); });
+#endif
+}
+
+void KernelState::set_threads_paused(bool paused) {
+    const std::lock_guard<std::mutex> lock(mutex);
+    if (threads_paused == paused)
+        return;
+    threads_paused = paused;
+    for (auto &[_, thread] : threads)
+        thread->set_paused(paused);
+}
+
+void KernelState::set_threads_suspended(bool suspended) {
+    const std::lock_guard<std::mutex> lock(mutex);
+    threads_suspended = suspended;
+    for (auto &[_, thread] : threads)
+        thread->set_suspended(suspended);
+}
+
+void KernelState::deinit(MemState &mem) {
+    process_exit();
+    threads.clear();
+
+    objects.clear();
+
+    loaded_modules.clear();
+    loaded_sysmodules.clear();
+    loaded_internal_sysmodules.clear();
+
+    {
+        std::lock_guard<std::mutex> lock(export_nids_mutex);
+        export_nids.clear();
+        export_nids_by_lib.clear();
+        export_nid_owners.clear();
+        func_binding_infos.clear();
+        var_binding_infos.clear();
+        module_uid_by_nid.clear();
+    }
+
+    corenum_allocator.alloc.reset();
+    corenum_allocator.alloc.set_maximum(0);
+
+    obj_store.clear();
+
+    tls_address = Ptr<const void>(0);
+    tls_psize = 0;
+    tls_msize = 0;
+
+    thread_event_start = Ptr<const void>(0);
+    thread_event_start_arg = 0;
+    thread_event_end = Ptr<const void>(0);
+    thread_event_end_arg = 0;
+
+    codec_blocks.clear();
+
+    halt_instruction = nullptr;
+
+    process_param = nullptr;
+    client_vtable = Ptr<void>(0);
+    shellsvc_client = Ptr<Address>(0);
+    libc_dso_handle_main = Ptr<void>(0);
+
+    debugger.deinit();
+
+    next_uid = 1;
+
+    threads_paused = false;
+    process_exiting = false;
+}
+
+SceKernelModuleInfo *KernelState::find_module_by_addr(Address address) {
+    const auto lock = std::lock_guard(mutex);
+    for (auto &[_, mod] : loaded_modules) {
+        for (auto &seg : mod->info.segments) {
+            if (!seg.size)
+                continue;
+            if (seg.vaddr.address() <= address && address <= seg.vaddr.address() + seg.memsz) {
+                return &mod->info;
+            }
+        }
+    }
+    return nullptr;
+}

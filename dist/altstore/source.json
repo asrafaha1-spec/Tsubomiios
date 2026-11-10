@@ -1,0 +1,101 @@
+{
+  "name": "Vita3KiOS",
+  "identifier": "org.vita3k.ios.source",
+  "subtitle": "PS Vita emulator for iOS",
+  "description": "Vita3KiOS is a PlayStation Vita emulator for iPhone and iPad, built on the Vita3K core.\n\n- Install games, updates and DLC from .vpk, .zip, .pkg or a dumped folder\n- JIT through StikDebug, works in LiveContainer\n- Per-game settings, community patches, cheats and mods\n- On-screen controls you can rearrange, controller support and button remapping\n- External storage: keep your games on a USB drive, SSD or SD card\n\nYou need your own PS Vita firmware and games.\n\nDiscord (help and bug reports): https://discord.gg/pZyQDPHKF",
+  "iconURL": "https://raw.githubusercontent.com/oledz-i/Vita3KiOS/main/dist/altstore/icon.png",
+  "website": "https://github.com/oledz-i/Vita3KiOS",
+  "tintColor": "#E97F02",
+  "news": [],
+  "apps": [
+    {
+      "bundleIdentifier": "org.vita3k.ios",
+      "versions": [
+        {
+          "version": "1.3.0",
+          "buildVersion": "149",
+          "date": "2026-11-10T12:54:20Z",
+          "localizedDescription": "## Vita3KiOS 1.3.0\n\n### PS Vita home screen (beta, Settings › Appearance)\n- Pages of glossy bubbles you swipe sideways, with page dots and arrows, like a real Vita\n- Information bar with large buttons for Search, Settings, Themes, Music and Library; Content Manager stays on the first page\n- Start screen and LiveAreas you peel away from the top-right corner\n- Each game's own LiveArea (background, gate, frames, manual) from its files; games without one get their artwork and a details strip\n- Seven built-in themes (Frutiger Aero style backgrounds), plus themes and home music from your firmware\n- Smoother, more satisfying taps and transitions\n\n### Memory\n- RAM helpers (beta, Settings › Memory): helper processes lend memory for games, so iOS is less likely to close big games. Works in LiveContainer 3.8.13+ with helper processes turned on\n- RAM checker: device RAM, Vita3K's usage and limit, and what the helpers lend\n\n### Compatibility and fixes\n- Games that write memory from vertex shaders no longer lose those draws on Metal\n- Games that start and end many threads wait briefly for a free JIT region instead of failing\n- Added the memory: device some games use at boot\n- Quitting no longer stalls on network sockets\n- JIT, crash and stability fixes from upstream Vita3K and Vita3K-Plus\n\n## Install\n- **AltStore / SideStore:** add the source `https://raw.githubusercontent.com/oledz-i/Vita3KiOS/main/dist/altstore/source.json` to get updates in-app.\n- **LiveContainer / TrollStore / other signers:** download `Vita3KiOS-1.3.0.ipa` below.\n\nBuild 149, commit 2d31aae.",
+          "downloadURL": "https://github.com/oledz-i/Vita3KiOS/releases/download/v1.3.0/Vita3KiOS-1.3.0.ipa",
+          "size": 17012900,
+          "minOSVersion": "17.4"
+        },
+        {
+          "version": "1.2.1",
+          "buildVersion": "112",
+          "date": "2026-11-08T04:19:55Z",
+          "localizedDescription": "Game audio now comes back after switching to another app and returning. Credit to MrBouza.\n\n## Install\n- **AltStore / SideStore:** add the source `https://raw.githubusercontent.com/oledz-i/Vita3KiOS/main/dist/altstore/source.json` to get updates in-app.\n- **LiveContainer / TrollStore / other signers:** download `Vita3KiOS-1.2.1.ipa` below.\n\nBuild 112, commit 865b986.",
+          "downloadURL": "https://github.com/oledz-i/Vita3KiOS/releases/download/v1.2.1/Vita3KiOS-1.2.1.ipa",
+          "size": 16578938,
+          "minOSVersion": "17.4"
+        },
+        {
+          "version": "1.2.0",
+          "buildVersion": "109",
+          "date": "2026-11-07T18:33:24Z",
+          "localizedDescription": "Fixes bent and stretched character models in 3D games. FSR works again. The on-screen keyboard now appears for game text prompts. Fixes a crash on some in-game videos and audio decoding that kept failing after one bad frame. The app now keeps trying to hand audio back to iOS so videos in other apps can play. Many game compatibility fixes ported from Vita3K-Plus. JIT starts even if StikDebug attaches late, with bigger caches for busy threads. Clearer crash reports. Credits added for MrBouza and Vita3K-Plus.\n\n## Install\n- **AltStore / SideStore:** add the source `https://raw.githubusercontent.com/oledz-i/Vita3KiOS/main/dist/altstore/source.json` to get updates in-app.\n- **LiveContainer / TrollStore / other signers:** download `Vita3KiOS-1.2.0.ipa` below.\n\nBuild 109, commit fcb1624.",
+          "downloadURL": "https://github.com/oledz-i/Vita3KiOS/releases/download/v1.2.0/Vita3KiOS-1.2.0.ipa",
+          "size": 16576636,
+          "minOSVersion": "17.4"
+        },
+        {
+          "version": "1.1.2",
+          "buildVersion": "88",
+          "date": "2026-11-06T12:16:05Z",
+          "localizedDescription": "### Fixes\n- Vita3K now hands the iPhone's audio back to other apps as soon as it leaves the screen, and takes it again when you return. It used to hold on to it until it was closed, which is the likely cause of videos not playing in other apps until a restart. If that still happens on this version, please report it with your iOS version and whether closing Vita3K from the app switcher fixes it.\n\n## Install\n- **AltStore / SideStore:** add the source `https://raw.githubusercontent.com/oledz-i/Vita3KiOS/main/dist/altstore/source.json` to get updates in-app.\n- **LiveContainer / TrollStore / other signers:** download `Vita3KiOS-1.1.2.ipa` below.\n\nBuild 88, commit ae3a386.",
+          "downloadURL": "https://github.com/oledz-i/Vita3KiOS/releases/download/v1.1.2/Vita3KiOS-1.1.2.ipa",
+          "size": 16562260,
+          "minOSVersion": "17.4"
+        },
+        {
+          "version": "1.1.1",
+          "buildVersion": "86",
+          "date": "2026-11-06T01:21:05Z",
+          "localizedDescription": "### New\n- Licenses: add a game's work.bin / .rif or paste its zRIF from the + menu (License section). Licenses inside a zip or folder are picked up automatically.\n- Save data import from a modded Vita or another Vita3K, as a zip or a folder, in any of the usual layouts. The current save is backed up to Files › Vita3KiOS › Save Backups first.\n\n### Fixes\n- Pausing really stops the GPU: no more heat while paused, and no more game closing after you leave the app while paused.\n- The game pauses as soon as Vita3K leaves the screen, and GPU errors while off screen no longer close the game or change its settings.\n- No more app crash when the GPU fails while the screen turns, on unsupported coprocessor instructions, or on a damaged game heap.\n- Archive installer: zips made on Windows, damaged or incomplete archives, unsupported compression and full storage are handled with a clear message instead of a half-installed game.\n- Crash reports name the code behind a bad memory access.\n\n### Performance and battery\n- Shader compilation and the renderer step down when the phone is hot or in Low Power Mode.\n- Steadier frame pacing when the phone is warm.\n- Fewer stutters from log writes during play.\n- The screen can dim and lock while a game is paused.\n\n## Install\n- **AltStore / SideStore:** add the source `https://raw.githubusercontent.com/oledz-i/Vita3KiOS/main/dist/altstore/source.json` to get updates in-app.\n- **LiveContainer / TrollStore / other signers:** download `Vita3KiOS-1.1.1.ipa` below.\n\nBuild 86, commit 5abaa93.",
+          "downloadURL": "https://github.com/oledz-i/Vita3KiOS/releases/download/v1.1.1/Vita3KiOS-1.1.1.ipa",
+          "size": 16560938,
+          "minOSVersion": "17.4"
+        },
+        {
+          "version": "1.1.0",
+          "buildVersion": "76",
+          "date": "2026-11-04T09:46:28Z",
+          "localizedDescription": "## Vita3KiOS 1.1.0\n\n**New**\n- Pause button, and Pause/Resume in the game menu. The game menu pauses the game while it is open.\n- Memory mapping choice: Double buffer, Native buffer or Off (Settings › Graphics and per game).\n- Portrait mode: games start in landscape and turn upright once they are on screen.\n- Keep the phone cool (Settings › Performance, on by default).\n- Darker touch controls.\n\n**Fixes**\n- No crash after leaving the app for a while: nothing is drawn while paused or in the background.\n- Games no longer freeze when the phone is turned, and Quit no longer hangs or writes false crash reports.\n- Fewer GPU failures at boot. A damaged shader cache no longer stops a game from starting.\n- Textures and buffers no longer go stale with Native buffer (stray shapes, missing stadium stands in Madden NFL 13).\n- Textures cut from game-drawn images are read from the right place.\n- No crash when Metal cannot build a shader (One Piece Burning Blood).\n- Dead or Alive 5 Plus and other thread-heavy games: room for 64 game threads.\n- Madden NFL 13: surface sync works with Native buffer (recommended settings). No crash with surface sync and high accuracy.\n\n**Smoother**\n- Shader cache saves run in the background instead of hitching a frame.\n- Bigger texture cache, so fewer reloads.\n- Faster shader cache loading.\n- Lower GPU overhead per frame.\n\nKnown issue: Madden NFL 13 player faces still render deformed.",
+          "downloadURL": "https://github.com/oledz-i/Vita3KiOS/releases/download/v1.1.0/Vita3KiOS-1.1.0.ipa",
+          "size": 16532038,
+          "minOSVersion": "17.4"
+        },
+        {
+          "version": "1.0.0",
+          "buildVersion": "46",
+          "date": "2026-11-03T12:40:34Z",
+          "localizedDescription": "The first release of Vita3KiOS: the full [Vita3K](https://github.com/Vita3K/Vita3K) PlayStation Vita emulator as a native iPhone and iPad app.\n\n## Highlights\n- **Full Vita3K core**: CPU recompiler, GXM → Vulkan renderer (MoltenVK), HLE, kept in sync with upstream\n- **JIT on iOS 26** through StikDebug's `universal.js` (from [Tsubomi](https://github.com/125hz/Tsubomi)), set up in one batched step\n- **Install anything**: `.pkg`, `.vpk`, `.zip` and dumped folders, including **updates and DLC**. Zips of `.pkg`s install in order (game → update → DLC); updates never ask for a zRIF\n- **Per-game sheet**: settings, community patches (60 FPS, resolution, fixes), cheats (VitaCheat database built in), rePatch mods, updates & DLC, save backups\n- **Performance**: 60 FPS mode, Fast CPU, upscaling up to 4× with FSR, background shader compilation, a shader cache kept between sessions, game threads on the performance cores\n- **Performance overlay** you configure: FPS, frame time, CPU, memory, thermals, battery, resolution\n- **Game menu**: screenshots to Photos, rear touchpad, show/hide controls, quit (✕ on screen, Home/PS on a controller, or hold Select + Start)\n- **Touch controls**: drag and pinch them into your own layout; themes (PlayStation, Xbox and Nintendo-style letters, Neon, Minimal)\n- **Controllers**: MFi, Xbox, PlayStation and Switch, with remapping and a ✕/○ swap\n- **Motion controls** that follow the landscape screen\n- **iOS integration**: Home Screen launch links (`vita3k://launch/<TITLE ID>`), recent games on the app icon, \"Open in Vita3K\" from Files and Safari, external drives for storage\n- **Crash reports** with the log one tap away; animated themes and original menu music\n\n## Requirements\niOS 17.4 or later on an A12 chip or newer, StikDebug for JIT, and your own firmware and game dumps. Game compatibility follows upstream Vita3K: see the [compatibility list](https://vita3k.org/compatibility.html).\n\n## Install\n- **AltStore / SideStore:** add the source `https://raw.githubusercontent.com/oledz-i/Vita3KiOS/main/dist/altstore/source.json` to get updates in-app.\n- **LiveContainer / TrollStore / other signers:** download `Vita3KiOS-1.0.0.ipa` below.\n\nBuild 46, commit ed16fba.",
+          "downloadURL": "https://github.com/oledz-i/Vita3KiOS/releases/download/v1.0.0/Vita3KiOS-1.0.0.ipa",
+          "size": 16450403,
+          "minOSVersion": "17.4"
+        }
+      ],
+      "name": "Vita3KiOS",
+      "developerName": "oledz-i",
+      "subtitle": "PS Vita emulator",
+      "localizedDescription": "Vita3KiOS is a PlayStation Vita emulator for iPhone and iPad, built on the Vita3K core.\n\n- Install games, updates and DLC from .vpk, .zip, .pkg or a dumped folder\n- JIT through StikDebug, works in LiveContainer\n- Per-game settings, community patches, cheats and mods\n- On-screen controls you can rearrange, controller support and button remapping\n- External storage: keep your games on a USB drive, SSD or SD card\n\nYou need your own PS Vita firmware and games.\n\nDiscord (help and bug reports): https://discord.gg/pZyQDPHKF",
+      "iconURL": "https://raw.githubusercontent.com/oledz-i/Vita3KiOS/main/dist/altstore/icon.png",
+      "tintColor": "#E97F02",
+      "category": "games",
+      "screenshots": [],
+      "appPermissions": {
+        "entitlements": [
+          "get-task-allow",
+          "com.apple.developer.kernel.extended-virtual-addressing",
+          "com.apple.developer.kernel.increased-memory-limit"
+        ],
+        "privacy": {}
+      },
+      "version": "1.3.0",
+      "versionDate": "2026-11-10T12:54:20Z",
+      "versionDescription": "## Vita3KiOS 1.3.0\n\n### PS Vita home screen (beta, Settings › Appearance)\n- Pages of glossy bubbles you swipe sideways, with page dots and arrows, like a real Vita\n- Information bar with large buttons for Search, Settings, Themes, Music and Library; Content Manager stays on the first page\n- Start screen and LiveAreas you peel away from the top-right corner\n- Each game's own LiveArea (background, gate, frames, manual) from its files; games without one get their artwork and a details strip\n- Seven built-in themes (Frutiger Aero style backgrounds), plus themes and home music from your firmware\n- Smoother, more satisfying taps and transitions\n\n### Memory\n- RAM helpers (beta, Settings › Memory): helper processes lend memory for games, so iOS is less likely to close big games. Works in LiveContainer 3.8.13+ with helper processes turned on\n- RAM checker: device RAM, Vita3K's usage and limit, and what the helpers lend\n\n### Compatibility and fixes\n- Games that write memory from vertex shaders no longer lose those draws on Metal\n- Games that start and end many threads wait briefly for a free JIT region instead of failing\n- Added the memory: device some games use at boot\n- Quitting no longer stalls on network sockets\n- JIT, crash and stability fixes from upstream Vita3K and Vita3K-Plus\n\n## Install\n- **AltStore / SideStore:** add the source `https://raw.githubusercontent.com/oledz-i/Vita3KiOS/main/dist/altstore/source.json` to get updates in-app.\n- **LiveContainer / TrollStore / other signers:** download `Vita3KiOS-1.3.0.ipa` below.\n\nBuild 149, commit 2d31aae.",
+      "downloadURL": "https://github.com/oledz-i/Vita3KiOS/releases/download/v1.3.0/Vita3KiOS-1.3.0.ipa",
+      "size": 17012900
+    }
+  ]
+}

@@ -1,0 +1,195 @@
+name: iOS
+
+# Every push builds a test IPA (an artifact on the run).
+# A release is cut either by pushing a tag (git tag v0.2.0 && git push --tags) or from the
+# Actions tab: "Run workflow" with a version number. The release gets the IPA attached and the
+# AltStore / SideStore source (dist/altstore/source.json) is updated so users get the update in-app.
+on:
+  push:
+    branches: ['**']
+    tags: ['v*']
+    paths-ignore:
+      - '**.md'
+      - 'dist/altstore/**'
+      - 'dist/readme/**'
+      - 'dist/game-fixes.txt'
+  pull_request:
+    paths-ignore:
+      - '**.md'
+      - 'dist/altstore/**'
+      - 'dist/readme/**'
+      - 'dist/game-fixes.txt'
+  workflow_dispatch:
+    inputs:
+      release:
+        description: 'Release version to publish (e.g. 0.2.0). Leave empty for a test build.'
+        required: false
+        default: ''
+      notes:
+        description: 'Release notes (optional, otherwise generated from commits)'
+        required: false
+        default: ''
+
+concurrency:
+  group: ios-${{ github.ref }}-${{ inputs.release }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+env:
+  BUILD_CONFIG: Release
+  HOMEBREW_NO_AUTO_UPDATE: 1
+  HOMEBREW_NO_INSTALL_CLEANUP: 1
+
+jobs:
+  ipa:
+    name: Build IPA
+    runs-on: macos-latest
+    timeout-minutes: 150
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      # Caches must live at paths without "..": actions/cache rejects relative segments
+      - name: Set up paths
+        id: paths
+        run: |
+          echo "VCPKG_ROOT=$RUNNER_TEMP/vcpkg" >> "$GITHUB_ENV"
+          echo "VCPKG_DEFAULT_BINARY_CACHE=$RUNNER_TEMP/vcpkg-binary-cache" >> "$GITHUB_ENV"
+          echo "CMAKE_CHECKS_SEED=$RUNNER_TEMP/cmake-checks/seed.cmake" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/vcpkg-binary-cache" "$RUNNER_TEMP/cmake-checks"
+          echo "image=$ImageOS-$ImageVersion" >> "$GITHUB_OUTPUT"
+
+          release="${{ inputs.release }}"
+          if [[ -z "$release" && "$GITHUB_REF_TYPE" == tag && "$GITHUB_REF_NAME" == v* ]]; then
+            release="${GITHUB_REF_NAME#v}"
+          fi
+          release="${release#v}"
+          if [[ -n "$release" ]]; then
+            echo "VITA3KIOS_VERSION=$release" >> "$GITHUB_ENV"
+            echo "VITA3KIOS_RELEASE=1" >> "$GITHUB_ENV"
+          fi
+          echo "release=$release" >> "$GITHUB_OUTPUT"
+
+      - name: Set up vcpkg
+        run: |
+          git clone https://github.com/microsoft/vcpkg "$VCPKG_ROOT"
+          "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
+
+      # Prebuilt openssl/curl/zlib/boost: saves about 5 minutes
+      - name: Cache vcpkg packages
+        uses: actions/cache@v6
+        with:
+          path: ${{ runner.temp }}/vcpkg-binary-cache
+          key: vcpkg-ios-${{ steps.paths.outputs.image }}-${{ hashFiles('vcpkg.json') }}
+          restore-keys: vcpkg-ios-${{ steps.paths.outputs.image }}-
+
+      # Results of CMake's feature checks (each is a slow Xcode try-compile): saves about 9 minutes
+      - name: Restore CMake check results
+        uses: actions/cache/restore@v6
+        with:
+          path: ${{ runner.temp }}/cmake-checks
+          key: cmake-checks-ios-${{ steps.paths.outputs.image }}-${{ github.sha }}
+          restore-keys: cmake-checks-ios-${{ steps.paths.outputs.image }}-
+
+      - name: Set up ccache
+        id: ccache
+        run: |
+          brew install ccache
+          ccache --set-config=max_size=3G
+          ccache --set-config=compiler_check=content
+          ccache --set-config=depend_mode=true
+          ccache --set-config=base_dir="$GITHUB_WORKSPACE"
+          ccache --set-config=sloppiness=modules,pch_defines,time_macros,include_file_mtime,include_file_ctime,ivfsoverlay,system_headers
+          echo "dir=$(ccache -k cache_dir)" >> "$GITHUB_OUTPUT"
+
+      # Compiled objects: only files that changed since the last build get recompiled
+      - name: Restore ccache
+        uses: actions/cache/restore@v6
+        with:
+          path: ${{ steps.ccache.outputs.dir }}
+          key: ccache-ios-${{ steps.paths.outputs.image }}-${{ github.sha }}
+          restore-keys: ccache-ios-${{ steps.paths.outputs.image }}-
+
+      - name: Build IPA
+        run: |
+          ccache -z
+          bash ./.ci/build-ios.sh artifacts
+          ccache -s
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ env.IPA_NAME }}
+          path: ${{ env.IPA_PATH }}
+          if-no-files-found: error
+
+      - name: Save ccache
+        if: always()
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ steps.ccache.outputs.dir }}
+          key: ccache-ios-${{ steps.paths.outputs.image }}-${{ github.sha }}
+
+      - name: Save CMake check results
+        if: always()
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ runner.temp }}/cmake-checks
+          key: cmake-checks-ios-${{ steps.paths.outputs.image }}-${{ github.sha }}
+
+      - name: Publish release
+        if: steps.paths.outputs.release != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NOTES: ${{ inputs.notes }}
+        run: |
+          tag="v${IPA_VERSION}"
+          git fetch --unshallow --tags origin 2> /dev/null || git fetch --tags origin
+          notes_file="$RUNNER_TEMP/notes.md"
+          if [[ -n "$NOTES" ]]; then
+            printf '%s\n' "$NOTES" > "$notes_file"
+          else
+            previous="$(git describe --tags --abbrev=0 --match 'v*' "${GITHUB_SHA}^" 2> /dev/null || true)"
+            {
+              echo "## Changes"
+              if [[ -n "$previous" ]]; then
+                git log --no-merges --format='- %s' "${previous}..${GITHUB_SHA}" -- . ':!dist/altstore'
+              else
+                git log --no-merges --format='- %s' -n 30 "$GITHUB_SHA" -- . ':!dist/altstore'
+              fi
+            } > "$notes_file"
+          fi
+          {
+            echo
+            echo "## Install"
+            echo "- **AltStore / SideStore:** add the source \`https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/main/dist/altstore/source.json\` to get updates in-app."
+            echo "- **LiveContainer / TrollStore / other signers:** download \`$(basename "$IPA_PATH")\` below."
+            echo
+            echo "Build ${IPA_BUILD}, commit ${GITHUB_SHA::7}."
+          } >> "$notes_file"
+
+          if gh release view "$tag" > /dev/null 2>&1; then
+            gh release upload "$tag" "$IPA_PATH" --clobber
+            gh release edit "$tag" --notes-file "$notes_file"
+          else
+            gh release create "$tag" "$IPA_PATH" --target "$GITHUB_SHA" \
+              --title "Vita3KiOS ${IPA_VERSION}" --notes-file "$notes_file"
+          fi
+
+          # Update the AltStore / SideStore source on main
+          url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${tag}/$(basename "$IPA_PATH")"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin main
+          git checkout -B source-update origin/main
+          python3 .ci/altstore-source.py dist/altstore/source.json "$GITHUB_REPOSITORY" \
+            "$IPA_VERSION" "$IPA_BUILD" "$IPA_PATH" "$url" "$notes_file"
+          git add dist/altstore/source.json
+          if ! git diff --cached --quiet; then
+            git commit -m "AltStore source: Vita3KiOS ${IPA_VERSION}"
+            git push origin HEAD:main
+          fi

@@ -1,0 +1,54 @@
+// Vita3K emulator project
+// Copyright (C) 2026 Vita3K team
+//
+// This program is free software; you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation; either version 2 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License along
+// with this program; if not, write to the Free Software Foundation, Inc.,
+// 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+
+#include <ngs/modules/mixer.h>
+#include <util/log.h>
+
+namespace ngs {
+
+uint32_t InputMixerModule::input_index_of(const ModuleData &data) {
+    uint32_t input_index = 0;
+    const auto &modules = data.parent->rack->modules;
+    for (uint32_t i = 0; i < data.index && i < modules.size(); i++) {
+        if (modules[i] && modules[i]->module_id() == input_mixer_module_id)
+            input_index++;
+    }
+    return input_index;
+}
+
+bool InputMixerModule::process(KernelState &kern, const MemState &mem, const SceUID thread_id, ModuleData &data, std::unique_lock<std::recursive_mutex> &scheduler_lock, std::unique_lock<std::mutex> &voice_lock) {
+    const uint32_t input_index = input_index_of(data);
+    if (input_index >= data.parent->inputs.inputs.size())
+        return false;
+
+    if (input_index == 0)
+        data.parent->products[0].data = data.parent->inputs.inputs[0].data();
+
+    return false;
+}
+
+bool MixerModule::process(KernelState &kern, const MemState &mem, const SceUID thread_id, ModuleData &data, std::unique_lock<std::recursive_mutex> &scheduler_lock, std::unique_lock<std::mutex> &voice_lock) {
+    if (!data.is_bypassed) {
+        const SceNgsParamsDescriptor *desc = data.get_parameters<SceNgsParamsDescriptor>(mem);
+        if (desc->id == SCE_NGS_MIXER_PARAMS_STRUCT_ID) {
+            LOG_WARN_ONCE("Game is using unimplemented mixer audio module");
+        }
+    }
+
+    return false;
+}
+} // namespace ngs

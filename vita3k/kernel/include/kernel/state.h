@@ -1,0 +1,215 @@
+// Vita3K emulator project
+// Copyright (C) 2026 Vita3K team
+//
+// This program is free software; you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation; either version 2 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License along
+// with this program; if not, write to the Free Software Foundation, Inc.,
+// 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+
+#pragma once
+
+#include <cpu/common.h>
+#include <kernel/callback.h>
+#include <kernel/debugger.h>
+#include <kernel/object_store.h>
+#include <kernel/sync_primitives.h>
+#include <kernel/types.h>
+#include <mem/allocator.h>
+#include <mem/block.h>
+#include <mem/ptr.h>
+#include <mem/util.h>
+#include <rtc/rtc.h>
+#include <util/containers.h>
+#include <util/types.h>
+
+#include <emuenv/app_launch_request.h>
+
+#include <atomic>
+#include <condition_variable>
+#include <functional>
+#include <map>
+#include <mutex>
+#include <optional>
+#include <vector>
+
+struct ThreadState;
+struct MemState;
+
+struct CodecEngineBlock;
+
+struct KernelModule {
+    SceKernelModuleInfo info;
+    Ptr<const uint8_t> info_segment_address;
+    uint32_t info_offset;
+};
+using SceKernelModulePtr = std::shared_ptr<KernelModule>;
+
+using ThreadStatePtr = std::shared_ptr<ThreadState>;
+using CodecEngineBlocks = std::map<SceUID, CodecEngineBlock>;
+using SlotToAddress = std::map<SceUID, Ptr<Ptr<void>>>;
+using ThreadStatePtrs = std::map<SceUID, ThreadStatePtr>;
+using SceKernelModuleInfoPtrs = std::map<SceUID, SceKernelModulePtr>;
+using ExportNids = unordered_map_fast<uint32_t, Address>;
+// A NID hashes the function name alone, so same-named exports from different libraries collide.
+using LibExportNids = unordered_map_fast<uint64_t, Address>;
+// The plain NID entry outlives taiHEN and HLE redirects, so its owner is tracked apart from its address.
+using ExportNidOwners = unordered_map_fast<uint32_t, uint32_t>;
+constexpr uint64_t lib_export_key(uint32_t library_nid, uint32_t nid) {
+    return (static_cast<uint64_t>(library_nid) << 32) | nid;
+}
+
+using NotFoundVars = std::map<Address, uint32_t>;
+using CallImportFunc = std::function<void(CPUState &cpu, uint32_t nid, SceUID thread_id)>;
+
+struct CodecEngineBlock {
+    uint32_t size;
+    int32_t vaddr;
+};
+
+using LoadedSysmodules = std::map<SceSysmoduleModuleId, std::vector<SceUID>>;
+using LoadedInternalSysmodules = std::vector<SceSysmoduleInternalModuleId>;
+
+struct CorenumAllocator {
+    BitmapAllocator alloc;
+    std::mutex lock;
+
+    void set_max_core_count(const std::size_t max);
+
+    int new_corenum();
+    void free_corenum(const int num);
+};
+
+struct VarBindingInfo {
+    void *entries;
+    uint32_t size;
+    uint32_t module_nid;
+};
+
+struct FuncBindingInfo {
+    Address entry_address;
+    uint32_t library_nid;
+};
+
+using VarBindingInfos = std::multimap<uint32_t, VarBindingInfo>;
+using FuncBindingInfos = std::multimap<uint32_t, FuncBindingInfo>;
+
+using ModuleUidByNid = std::map<uint32_t, uint32_t>;
+
+struct KernelState {
+    KernelState();
+
+    std::mutex mutex;
+    CodecEngineBlocks codec_blocks;
+
+    Ptr<const void> tls_address = Ptr<const void>(0);
+    unsigned int tls_psize = 0;
+    unsigned int tls_msize = 0;
+
+    Ptr<const void> thread_event_start = Ptr<const void>(0);
+    Address thread_event_start_arg = 0;
+    Ptr<const void> thread_event_end = Ptr<const void>(0);
+    Address thread_event_end_arg = 0;
+
+    // Thread manager objects other than threads, by UID
+    KernelObjects objects;
+
+    ThreadStatePtrs threads;
+    // iOS: set when shutdown gave up waiting for some guest threads; their memory must not be freed
+    bool threads_left_running = false;
+    void *jni_env;
+    void *jni_activity;
+
+    SceKernelModuleInfoPtrs loaded_modules;
+    LoadedSysmodules loaded_sysmodules;
+    LoadedInternalSysmodules loaded_internal_sysmodules;
+
+    // the variables in this block must be accessed by first locking export_nids_mutex
+    std::mutex export_nids_mutex;
+    ExportNids export_nids;
+    LibExportNids export_nids_by_lib;
+    ExportNidOwners export_nid_owners;
+    FuncBindingInfos func_binding_infos;
+    VarBindingInfos var_binding_infos;
+    ModuleUidByNid module_uid_by_nid;
+
+    bool cpu_opt;
+    CorenumAllocator corenum_allocator;
+    CallImportFunc call_import;
+
+    // Thumb NOP and WFI that guest functions called by the kernel return to
+    Block halt_instruction;
+
+    ObjectStore obj_store;
+
+    uint64_t start_tick;
+    SceRtcTick base_tick;
+    // Returns the process time at a time of the host clock that timers count with
+    uint64_t process_time_at(uint64_t clock_time) const;
+    Ptr<SceProcessParam> process_param;
+    Ptr<void> client_vtable = Ptr<void>(0);
+    Ptr<Address> shellsvc_client = Ptr<Address>(0);
+    Ptr<void> libc_dso_handle_main = Ptr<void>(0);
+
+    Debugger debugger;
+
+    // kubridge exception handlers (DABT=0, PABT=1, UNDEF=2)
+    static constexpr int EXCEPTION_HANDLER_MAX = 3;
+    std::atomic<Address> exception_handlers[EXCEPTION_HANDLER_MAX]{};
+    std::condition_variable thread_deleted_cond;
+
+    SceUID get_next_uid() {
+        return next_uid++;
+    }
+
+    bool init(MemState &mem, const CallImportFunc &call_import, bool cpu_opt);
+    void deinit(MemState &mem);
+    void load_process_param(MemState &mem, Ptr<uint32_t> ptr);
+    // Creates a dormant thread with these creation arguments, attr without THREAD_ATTR_USER, or returns null
+    ThreadStatePtr create_thread(MemState &mem, const char *name, Ptr<const void> entry_point, int init_priority, SceInt32 affinity_mask, int stack_size, SceUInt32 attr);
+
+    ThreadStatePtr get_thread(SceUID thread_id);
+
+    // Creates a callback owned by thread and returns its UID.
+    SceUID create_callback(const ThreadStatePtr &thread, const char *name, Ptr<SceKernelCallbackFunction> func, Ptr<void> common);
+    // Deletes the callback with this UID for the thread deleter, so it never runs again. Returns false
+    // if there is none.
+    bool delete_callback(SceUID id, SceUID deleter);
+    Ptr<Ptr<void>> get_thread_tls_addr(MemState &mem, SceUID thread_id, int key);
+
+    bool is_threads_paused() {
+        const std::lock_guard<std::mutex> lock(mutex);
+        return threads_paused;
+    }
+    // Pauses every thread, and the threads created until the pause ends, or lets them run again
+    void set_threads_paused(bool paused);
+    // Stops every thread for the debugger, and the threads created until it lets them go, or lets
+    // them run again
+    void set_threads_suspended(bool suspended);
+
+    // Kill all guest threads and block until they have exited. Must only be called from a host thread.
+    void process_exit();
+    std::function<void(int, std::optional<AppLaunchRequest>)> process_exit_callback;
+    // Request process exit. Safe to call from a guest thread. Returns immediately.
+    // The registered process_exit_callback is invoked to notify the host layer.
+    void request_process_exit(int res, std::optional<AppLaunchRequest> relaunch = std::nullopt);
+
+    void set_memory_watch(bool enabled);
+    void invalidate_jit_cache(Address start, size_t length);
+    SceKernelModuleInfo *find_module_by_addr(Address address);
+
+private:
+    std::atomic<SceUID> next_uid{ 1 };
+    bool threads_paused = false;
+    bool threads_suspended = false;
+    // The process is exiting, so a thread still being created ends as well
+    bool process_exiting = false;
+};
