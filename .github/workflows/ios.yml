@@ -126,15 +126,17 @@ jobs:
         run: |
           brew install ldid
           work="$RUNNER_TEMP/trollstore-ipa"
+          ipa="$(cd "$(dirname "$IPA_PATH")" && pwd)/$(basename "$IPA_PATH")"
+          echo "IPA: $ipa"; ls -la "$ipa"
           rm -rf "$work" && mkdir -p "$work"
-          unzip -q "$IPA_PATH" -d "$work"
+          unzip -q "$ipa" -d "$work"
           app="$(find "$work/Payload" -maxdepth 1 -name '*.app' | head -n 1)"
           exe="$app/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Info.plist")"
           ldid -S"$GITHUB_WORKSPACE/vita3k/ios/Vita3K.entitlements" "$exe"
           echo "Embedded entitlements:"; ldid -e "$exe"
-          rm -f "$IPA_PATH"
-          (cd "$work" && /usr/bin/zip -qry "$IPA_PATH" Payload)
-          /usr/bin/unzip -tq "$IPA_PATH"
+          rm -f "$ipa"
+          (cd "$work" && /usr/bin/zip -qry "$ipa" Payload)
+          /usr/bin/unzip -tq "$ipa"
 
       - name: Upload IPA
         uses: actions/upload-artifact@v7
