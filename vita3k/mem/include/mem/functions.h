@@ -51,6 +51,12 @@ bool init(MemState &state, const bool use_page_table);
 // Reserve the guest address range ahead of time (before other large mappings
 // can fragment the address space); the next init() adopts the reservation.
 bool prereserve_guest_memory();
+
+// RAM helpers (iOS): backs part of the guest's address range with memory owned by helper processes.
+// Called once per boot per range with the host range; returns the bytes it backed, `last` marks the last
+// range of the boot. Idea and implementation from Vita3KiOS (oledz-i/Vita3KiOS, GPL-2.0-or-later).
+using GuestBackingProvider = uint64_t (*)(void *host, uint64_t size, bool last);
+void set_guest_backing_provider(GuestBackingProvider provider);
 void deinit_mem(MemState &state);
 Address alloc(MemState &state, uint32_t size, const char *name, Address start_addr = user_main_memory_start);
 Address alloc_aligned(MemState &state, uint32_t size, const char *name, unsigned int alignment, Address start_addr = user_main_memory_start);

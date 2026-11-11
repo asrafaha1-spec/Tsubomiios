@@ -32,6 +32,8 @@ if(VITA3K_BUILD_IOS_UPSTREAM_CORE)
         src/LibcxxCompat.cpp
         src/UpstreamMain.cpp
         src/VirtualController.mm
+        ramhelper/ram_helpers.mm
+        ramhelper/log.cpp
         ${VITA3K_IOS_SWIFT_SOURCES}
         ${VITA3K_IOS_CUELUME_LICENSE}
         ${CMAKE_CURRENT_SOURCE_DIR}/Assets.xcassets
@@ -43,6 +45,7 @@ if(VITA3K_BUILD_IOS_UPSTREAM_CORE)
     set_source_files_properties(${VITA3K_IOS_CUELUME_LICENSE}
         PROPERTIES MACOSX_PACKAGE_LOCATION "Resources/Licenses")
     target_include_directories(Vita3KiOS PRIVATE include
+        "${CMAKE_CURRENT_SOURCE_DIR}"
         # keyboard bridge in UpstreamMain.cpp uses the IME and common-dialog state
         "${CMAKE_SOURCE_DIR}/vita3k/dialog/include"
         "${CMAKE_SOURCE_DIR}/vita3k/ime/include")
@@ -53,6 +56,36 @@ if(VITA3K_BUILD_IOS_UPSTREAM_CORE)
         $<$<COMPILE_LANGUAGE:C,CXX,OBJC,OBJCXX>:-Wall>
         $<$<COMPILE_LANGUAGE:C,CXX,OBJC,OBJCXX>:-Wextra>)
     target_compile_definitions(Vita3KiOS PRIVATE VITA3K_IOS_UPSTREAM_CORE=1)
+    set_source_files_properties(ramhelper/ram_helpers.mm PROPERTIES COMPILE_FLAGS "-fobjc-arc")
+
+    # RAM helpers: V3KRamHelper.appex, an app extension that runs as separate processes (each with its own
+    # memory limit) and lends memory to Vita3K. Embedded in the app's PlugIns. See ramhelper/protocol.h.
+    # Off by default (Settings > Performance).
+    add_executable(V3KRamHelper MACOSX_BUNDLE
+        ramhelper/extension.mm
+        ramhelper/protocol.h
+    )
+    set_source_files_properties(ramhelper/extension.mm PROPERTIES COMPILE_FLAGS "-fobjc-arc")
+    target_link_libraries(V3KRamHelper PRIVATE "-framework Foundation")
+    set_target_properties(V3KRamHelper PROPERTIES
+        BUNDLE_EXTENSION appex
+        XCODE_PRODUCT_TYPE com.apple.product-type.app-extension
+        MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/ramhelper/Info.plist.in"
+        MACOSX_BUNDLE_GUI_IDENTIFIER "${VITA3K_IOS_BUNDLE_ID}.RamHelper"
+        MACOSX_BUNDLE_SHORT_VERSION_STRING "1.0"
+        MACOSX_BUNDLE_BUNDLE_VERSION "1"
+        XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER "${VITA3K_IOS_BUNDLE_ID}.RamHelper"
+        XCODE_ATTRIBUTE_IPHONEOS_DEPLOYMENT_TARGET "${VITA3K_IOS_DEPLOYMENT_TARGET}"
+        XCODE_ATTRIBUTE_TARGETED_DEVICE_FAMILY "1,2"
+        XCODE_ATTRIBUTE_SKIP_INSTALL YES
+        XCODE_ATTRIBUTE_APPLICATION_EXTENSION_API_ONLY YES
+        XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED "NO"
+    )
+    add_dependencies(Vita3KiOS V3KRamHelper)
+    set_target_properties(Vita3KiOS PROPERTIES
+        XCODE_EMBED_APP_EXTENSIONS V3KRamHelper
+        XCODE_EMBED_APP_EXTENSIONS_REMOVE_HEADERS_ON_COPY YES
+    )
     # Swift <-> Objective-C bridging.
     #   * The bridging header is what Swift sees: it exposes ONLY
     #     TsubomiBridge.h, a pure Objective-C facade. Swift deliberately does

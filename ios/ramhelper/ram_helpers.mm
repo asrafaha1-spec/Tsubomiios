@@ -1,0 +1,525 @@
+// Vita3K project
+// Copyright (C) 2026 Vita3K team
+//
+// This program is free software; you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation; either version 2 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License along
+// with this program; if not, write to the Free Software Foundation, Inc.,
+// 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+
+// RAM helpers, Vita3K's side: starts the helper extension's processes, takes memory from them and
+// maps it over the guest RAM. See protocol.h.
+
+#import "ram_helpers.h"
+#import "protocol.h"
+
+#import <Foundation/Foundation.h>
+#import <dlfcn.h>
+#import <mach/mach.h>
+#import <os/proc.h>
+#import <sys/mman.h>
+#import <xpc/xpc.h>
+
+#include <fmt/format.h>
+
+// util/log.h can't be included next to Foundation (MacTypes' Ptr): logging goes through log.cpp
+extern "C" void v3k_ram_helpers_log(bool warning, const char *message);
+#define RAM_LOG_INFO(...) v3k_ram_helpers_log(false, fmt::format(__VA_ARGS__).c_str())
+#define RAM_LOG_WARN(...) v3k_ram_helpers_log(true, fmt::format(__VA_ARGS__).c_str())
+
+#include <algorithm>
+#include <atomic>
+#include <memory>
+#include <mutex>
+#include <string>
+#include <vector>
+
+// The xpc endpoint travels inside an NSXPCListenerEndpoint (the only endpoint NSExtensionItem can
+// carry); its private _endpoint property holds the raw xpc object
+@interface NSXPCListenerEndpoint (V3KRamHelper)
+@property (nonatomic, setter=_setEndpoint:) xpc_object_t _endpoint;
+@end
+
+static NSXPCListenerEndpoint *v3k_wrap_endpoint(xpc_endpoint_t endpoint) {
+    NSXPCListenerEndpoint *wrapper = [NSXPCListenerEndpoint new];
+    wrapper._endpoint = endpoint;
+    return wrapper;
+}
+
+// Private NSExtension API (Foundation/ExtensionFoundation): how an app starts its own extensions. Looked up
+// at run time (LiveContainer hooks the same class methods to run the extension inside it)
+@protocol V3KExtensionAPI <NSObject>
+@property (nonatomic, strong, readwrite) NSArray *preferredLanguages;
++ (id<V3KExtensionAPI>)extensionWithIdentifier:(NSString *)identifier error:(NSError **)error;
+- (void)beginExtensionRequestWithInputItems:(NSArray *)items completion:(void (^)(NSUUID *))callback;
+- (void)_kill:(int)signal;
+- (void)setRequestCancellationBlock:(void (^)(NSUUID *uuid, NSError *error))callback;
+@end
+
+extern "C" kern_return_t mach_vm_allocate(vm_map_t target, mach_vm_address_t *address, mach_vm_size_t size, int flags);
+extern "C" kern_return_t mach_vm_deallocate(vm_map_t target, mach_vm_address_t address, mach_vm_size_t size);
+extern "C" kern_return_t mach_vm_remap(vm_map_t target, mach_vm_address_t *address, mach_vm_size_t size, mach_vm_offset_t mask, int flags,
+    vm_map_t source, mach_vm_address_t source_address, boolean_t copy, vm_prot_t *current, vm_prot_t *maximum, vm_inherit_t inheritance);
+extern "C" kern_return_t mach_vm_region_recurse(vm_map_read_t target, mach_vm_address_t *address, mach_vm_size_t *size, natural_t *depth,
+    vm_region_recurse_info_t info, mach_msg_type_number_t *count);
+
+#ifndef VM_FLAGS_OVERWRITE
+#define VM_FLAGS_OVERWRITE 0x4000
+#endif
+
+namespace {
+
+constexpr uint64_t MiB = 1024ull * 1024ull;
+// What a helper keeps for itself: its own code and iOS's bookkeeping, so it isn't killed for lending
+constexpr uint64_t HELPER_HEADROOM = 256 * MiB;
+constexpr double START_TIMEOUT = 8.0;
+
+struct Helper {
+    xpc_connection_t connection = nil;
+    uint64_t remaining = 0; // what it can still lend
+    bool budget_known = false;
+};
+
+struct Backed {
+    mach_vm_address_t base;
+    uint64_t size;
+};
+
+std::recursive_mutex g_lock;
+xpc_connection_t g_listener = nil;
+dispatch_semaphore_t g_connected = nil;
+NSMutableArray *g_extensions = nil; // NSExtension, one per helper process
+std::vector<std::shared_ptr<Helper>> g_helpers;
+std::vector<Backed> g_backed;
+NSMutableArray *g_shmems = nil; // keeps the shared memory objects of this boot
+std::string g_status = "Not used yet";
+std::atomic<bool> g_start_failed{ false };
+bool g_new_boot = true; // the next range offered starts a new boot // the extension could not be started: don't keep waiting on every boot
+size_t g_next = 0;
+
+void set_status(const std::string &status, bool error = false) {
+    {
+        std::lock_guard lock(g_lock);
+        g_status = status;
+    }
+    if (error)
+        RAM_LOG_WARN("{}", status);
+    else
+        RAM_LOG_INFO("{}", status);
+}
+
+NSString *helper_identifier() {
+    static NSString *identifier;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        NSArray<NSURL *> *contents = [NSFileManager.defaultManager contentsOfDirectoryAtURL:NSBundle.mainBundle.builtInPlugInsURL
+                                                                 includingPropertiesForKeys:nil
+                                                                                    options:0
+                                                                                      error:nil];
+        for (NSURL *url in contents) {
+            if (![url.pathExtension isEqualToString:@"appex"])
+                continue;
+            NSBundle *bundle = [NSBundle bundleWithURL:url];
+            if ([bundle.infoDictionary[@"NSExtension"][@"NSExtensionPrincipalClass"] isEqualToString:@V3K_RAM_HELPER_PRINCIPAL])
+                identifier = bundle.bundleIdentifier;
+        }
+    });
+    return identifier;
+}
+
+void forget(xpc_connection_t connection) {
+    std::lock_guard lock(g_lock);
+    g_helpers.erase(std::remove_if(g_helpers.begin(), g_helpers.end(), [&](const std::shared_ptr<Helper> &h) { return h->connection == connection; }), g_helpers.end());
+}
+
+void ensure_listener() {
+    std::lock_guard lock(g_lock);
+    if (g_listener)
+        return;
+    g_connected = dispatch_semaphore_create(0);
+    g_extensions = [NSMutableArray array];
+    g_shmems = [NSMutableArray array];
+    g_listener = xpc_connection_create(NULL, dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0));
+    xpc_connection_set_event_handler(g_listener, ^(xpc_object_t event) {
+        if (xpc_get_type(event) != XPC_TYPE_CONNECTION)
+            return;
+        xpc_connection_t connection = (xpc_connection_t)event;
+        xpc_connection_set_event_handler(connection, ^(xpc_object_t message) {
+            if (xpc_get_type(message) == XPC_TYPE_ERROR)
+                forget(connection);
+        });
+        xpc_connection_resume(connection);
+        {
+            std::lock_guard inner(g_lock);
+            auto helper = std::make_shared<Helper>();
+            helper->connection = connection;
+            g_helpers.push_back(helper);
+        }
+        dispatch_semaphore_signal(g_connected);
+    });
+    xpc_connection_resume(g_listener);
+}
+
+size_t live_count() {
+    std::lock_guard lock(g_lock);
+    return g_helpers.size();
+}
+
+// Starts one more helper process and waits until it connects
+bool start_helper() {
+    NSString *identifier = helper_identifier();
+    if (!identifier) {
+        set_status("The RAM helper extension is not in this copy of the app (the signer may have removed it)", true);
+        g_start_failed = true;
+        return false;
+    }
+    ensure_listener();
+
+    Class extension_class = NSClassFromString(@"NSExtension");
+    if (!extension_class) {
+        dlopen("/System/Library/Frameworks/ExtensionFoundation.framework/ExtensionFoundation", RTLD_LAZY | RTLD_GLOBAL);
+        extension_class = NSClassFromString(@"NSExtension");
+    }
+    if (!extension_class) {
+        set_status("This iOS version has no way to start the RAM helper", true);
+        g_start_failed = true;
+        return false;
+    }
+    NSError *error = nil;
+    id<V3KExtensionAPI> extension = [(Class<V3KExtensionAPI>)extension_class extensionWithIdentifier:identifier error:&error];
+    if (!extension) {
+        set_status(std::string("The RAM helper could not be loaded: ") + (error.localizedDescription.UTF8String ?: "unknown error"), true);
+        g_start_failed = true;
+        return false;
+    }
+    extension.preferredLanguages = @[];
+    [extension setRequestCancellationBlock:^(NSUUID *, NSError *cancel_error) {
+        RAM_LOG_WARN("a helper's request was cancelled ({})", cancel_error.localizedDescription.UTF8String ?: "");
+    }];
+
+    NSExtensionItem *item = [NSExtensionItem new];
+    item.userInfo = @{ @"endpoint" : v3k_wrap_endpoint(xpc_endpoint_create(g_listener)) };
+
+    const size_t before = live_count();
+    __block bool started = false;
+    dispatch_semaphore_t spawned = dispatch_semaphore_create(0);
+    [extension beginExtensionRequestWithInputItems:@[ item ]
+                                        completion:^(NSUUID *request) {
+                                            started = request != nil;
+                                            dispatch_semaphore_signal(spawned);
+                                        }];
+    dispatch_semaphore_wait(spawned, dispatch_time(DISPATCH_TIME_NOW, static_cast<int64_t>(START_TIMEOUT * NSEC_PER_SEC)));
+    if (!started) {
+        set_status("iOS did not start a RAM helper process", true);
+        g_start_failed = true;
+        return false;
+    }
+
+    const double deadline = NSDate.timeIntervalSinceReferenceDate + START_TIMEOUT;
+    while (live_count() <= before) {
+        const double left = deadline - NSDate.timeIntervalSinceReferenceDate;
+        if (left <= 0) {
+            set_status("A RAM helper started but never connected", true);
+            [extension _kill:SIGKILL];
+            g_start_failed = true;
+            return false;
+        }
+        dispatch_semaphore_wait(g_connected, dispatch_time(DISPATCH_TIME_NOW, static_cast<int64_t>(left * NSEC_PER_SEC)));
+    }
+    std::lock_guard lock(g_lock);
+    [g_extensions addObject:extension];
+    return true;
+}
+
+xpc_object_t send(xpc_connection_t connection, const char *op, uint64_t size, double timeout) {
+    xpc_object_t request = xpc_dictionary_create(NULL, NULL, 0);
+    xpc_dictionary_set_string(request, V3K_RAM_KEY_OP, op);
+    if (size)
+        xpc_dictionary_set_uint64(request, V3K_RAM_KEY_SIZE, size);
+    __block xpc_object_t answer = nil;
+    dispatch_semaphore_t replied = dispatch_semaphore_create(0);
+    xpc_connection_send_message_with_reply(connection, request, dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^(xpc_object_t reply) {
+        if (xpc_get_type(reply) == XPC_TYPE_DICTIONARY)
+            answer = reply;
+        dispatch_semaphore_signal(replied);
+    });
+    if (dispatch_semaphore_wait(replied, dispatch_time(DISPATCH_TIME_NOW, static_cast<int64_t>(timeout * NSEC_PER_SEC))) != 0)
+        return nil;
+    return answer;
+}
+
+int wanted_helpers() {
+    NSInteger count = [NSUserDefaults.standardUserDefaults integerForKey:@"v3k.ramHelpers.count"];
+    if (count <= 0)
+        count = 2;
+    return static_cast<int>(std::clamp<NSInteger>(count, 1, 4));
+}
+
+// A helper with room for `length` bytes, starting more helpers (up to the setting) when all are full
+std::shared_ptr<Helper> helper_with_room(uint64_t length) {
+    for (;;) {
+        {
+            std::lock_guard lock(g_lock);
+            for (size_t i = 0; i < g_helpers.size(); i++) {
+                const std::shared_ptr<Helper> shared = g_helpers[(g_next + i) % g_helpers.size()];
+                Helper &helper = *shared;
+                if (!helper.budget_known) {
+                    xpc_object_t reply = send(helper.connection, V3K_RAM_OP_AVAILABLE, 0, 2.0);
+                    const uint64_t available = reply ? xpc_dictionary_get_uint64(reply, V3K_RAM_KEY_AVAILABLE) : 0;
+                    helper.remaining = available > HELPER_HEADROOM ? available - HELPER_HEADROOM : 0;
+                    helper.budget_known = true;
+                    RAM_LOG_INFO("helper {} can lend {} MiB", g_helpers.size(), helper.remaining / MiB);
+                }
+                if (helper.remaining >= length) {
+                    g_next = (g_next + i + 1) % g_helpers.size();
+                    return shared;
+                }
+            }
+        }
+        if (g_start_failed || live_count() >= static_cast<size_t>(wanted_helpers()) || !start_helper())
+            return nullptr;
+    }
+}
+
+bool map_chunk(Helper &helper, mach_vm_address_t target, uint64_t length) {
+    xpc_object_t reply = send(helper.connection, V3K_RAM_OP_CREATE, length, 20.0);
+    if (!reply) {
+        set_status("A RAM helper didn't answer", true);
+        helper.remaining = 0;
+        return false;
+    }
+    if (const char *error = xpc_dictionary_get_string(reply, V3K_RAM_KEY_ERROR)) {
+        set_status(std::string("A RAM helper couldn't lend memory: ") + error, true);
+        helper.remaining = 0;
+        return false;
+    }
+    xpc_object_t shmem = xpc_dictionary_get_value(reply, V3K_RAM_KEY_SHMEM);
+    if (!shmem || xpc_get_type(shmem) != XPC_TYPE_SHMEM) {
+        set_status("A RAM helper's answer had no memory in it", true);
+        return false;
+    }
+    void *scratch = nullptr;
+    const size_t mapped = xpc_shmem_map(shmem, &scratch);
+    if (!scratch || mapped < length) {
+        if (scratch)
+            mach_vm_deallocate(mach_task_self(), reinterpret_cast<mach_vm_address_t>(scratch), mapped);
+        set_status("The memory a RAM helper lent could not be mapped", true);
+        return false;
+    }
+    // Move it over the guest range (replacing the reservation there)
+    vm_prot_t current = VM_PROT_NONE, maximum = VM_PROT_NONE;
+    mach_vm_address_t destination = target;
+    const kern_return_t kr = mach_vm_remap(mach_task_self(), &destination, length, 0, VM_FLAGS_FIXED | VM_FLAGS_OVERWRITE,
+        mach_task_self(), reinterpret_cast<mach_vm_address_t>(scratch), false, &current, &maximum, VM_INHERIT_NONE);
+    mach_vm_deallocate(mach_task_self(), reinterpret_cast<mach_vm_address_t>(scratch), mapped);
+    if (kr != KERN_SUCCESS || destination != target) {
+        set_status(std::string("Lent memory could not be placed in the guest range: ") + mach_error_string(kr), true);
+        return false;
+    }
+    // The guest allocator expects untouched pages to be inaccessible until it hands them out
+    if (mprotect(reinterpret_cast<void *>(target), length, PROT_NONE) != 0) {
+        set_status("Lent memory could not be protected", true);
+        return false;
+    }
+    std::lock_guard lock(g_lock);
+    [g_shmems addObject:shmem];
+    helper.remaining -= length;
+    return true;
+}
+
+// Ends the helper processes of this boot. Their memory stays mapped here: once its owner is gone iOS
+// charges it to no process, and nothing can be killed to take it back (MeloNX found this the most
+// stable way to run)
+void end_helpers() {
+    NSArray *extensions;
+    {
+        std::lock_guard lock(g_lock);
+        extensions = [g_extensions copy];
+        [g_extensions removeAllObjects];
+        g_helpers.clear();
+        g_next = 0;
+    }
+    for (id<V3KExtensionAPI> extension in extensions)
+        [extension _kill:SIGKILL];
+}
+
+uint64_t touched_bytes(mach_vm_address_t start, uint64_t length) {
+    const mach_vm_address_t end = start + length;
+    mach_vm_address_t address = start;
+    natural_t depth = 0;
+    uint64_t pages = 0;
+    while (address < end) {
+        mach_vm_size_t size = 0;
+        vm_region_submap_info_data_64_t info;
+        mach_msg_type_number_t count = VM_REGION_SUBMAP_INFO_COUNT_64;
+        if (mach_vm_region_recurse(mach_task_self(), &address, &size, &depth, reinterpret_cast<vm_region_recurse_info_t>(&info), &count) != KERN_SUCCESS || address >= end)
+            break;
+        if (info.is_submap) {
+            depth++;
+            continue;
+        }
+        const mach_vm_address_t region_end = std::min<mach_vm_address_t>(address + size, end);
+        const uint64_t region_pages = (region_end - address) / vm_page_size;
+        pages += std::min<uint64_t>(info.pages_dirtied + info.pages_swapped_out, region_pages);
+        address += size;
+    }
+    return pages * vm_page_size;
+}
+
+} // namespace
+
+extern "C" {
+
+bool v3k_ram_helpers_enabled(void) {
+    return [NSUserDefaults.standardUserDefaults boolForKey:@"v3k.ramHelpers"];
+}
+
+bool v3k_ram_helpers_bundled(void) {
+    return helper_identifier() != nil;
+}
+
+bool v3k_ram_helpers_in_livecontainer(void) {
+    return getenv("LC_HOME_PATH") != nullptr || [NSBundle.mainBundle.bundlePath containsString:@"LiveContainer"];
+}
+
+uint64_t v3k_ram_helpers_back(void *host, uint64_t size, bool last) {
+    if (!v3k_ram_helpers_enabled() || !host || size == 0)
+        return 0;
+    {
+        std::lock_guard lock(g_lock);
+        // A new boot: the previous one's memory went away with its guest range
+        if (g_new_boot) {
+            g_new_boot = false;
+            g_backed.clear();
+            [g_shmems removeAllObjects];
+        }
+    }
+    if (g_start_failed) {
+        // Tried and failed earlier in this run of the app: don't make every boot wait again
+        if (last)
+            g_new_boot = true;
+        return 0;
+    }
+
+    const mach_vm_address_t base = reinterpret_cast<mach_vm_address_t>(host);
+    uint64_t offset = 0;
+    while (offset < size) {
+        const uint64_t length = std::min<uint64_t>(V3K_RAM_HELPER_CHUNK, size - offset);
+        const std::shared_ptr<Helper> helper = helper_with_room(length);
+        if (!helper || !map_chunk(*helper, base + offset, length))
+            break;
+        offset += length;
+    }
+    if (offset) {
+        std::lock_guard lock(g_lock);
+        g_backed.push_back({ base, offset });
+    }
+
+    if (last) {
+        g_new_boot = true;
+        uint64_t total = 0;
+        {
+            std::lock_guard lock(g_lock);
+            for (const Backed &backed : g_backed)
+                total += backed.size;
+        }
+        const size_t helpers = live_count();
+        end_helpers();
+        if (total)
+            set_status(fmt::format("{} MiB of the PS Vita's memory lent by {} helper process{}", total / MiB, helpers, helpers == 1 ? "" : "es"));
+        else if (!g_start_failed)
+            set_status("The helpers had no memory to lend", true);
+        // Ready for the next boot
+        v3k_ram_helpers_prepare();
+    }
+    return offset;
+}
+
+void v3k_ram_helpers_prepare(void) {
+    if (!v3k_ram_helpers_enabled() || g_start_failed || !v3k_ram_helpers_bundled())
+        return;
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+        while (!g_start_failed && live_count() < static_cast<size_t>(wanted_helpers())) {
+            if (!start_helper())
+                break;
+        }
+    });
+}
+
+uint32_t v3k_ram_helpers_live(void) {
+    return static_cast<uint32_t>(live_count());
+}
+
+uint64_t v3k_ram_helpers_backed(void) {
+    std::lock_guard lock(g_lock);
+    uint64_t total = 0;
+    for (const Backed &backed : g_backed)
+        total += backed.size;
+    return total;
+}
+
+uint64_t v3k_ram_helpers_in_use(void) {
+    std::vector<Backed> backed;
+    {
+        std::lock_guard lock(g_lock);
+        backed = g_backed;
+    }
+    uint64_t total = 0;
+    for (const Backed &range : backed)
+        total += touched_bytes(range.base, range.size);
+    return total;
+}
+
+uint64_t v3k_ram_helpers_probe(void) {
+    if (!v3k_ram_helpers_bundled())
+        return 0;
+    g_start_failed = false; // the user asked: try again
+    if (live_count() == 0 && !start_helper())
+        return 0;
+    xpc_connection_t connection;
+    {
+        std::lock_guard lock(g_lock);
+        if (g_helpers.empty())
+            return 0;
+        connection = g_helpers.front()->connection;
+    }
+    xpc_object_t reply = send(connection, V3K_RAM_OP_AVAILABLE, 0, 3.0);
+    const uint64_t available = reply ? xpc_dictionary_get_uint64(reply, V3K_RAM_KEY_AVAILABLE) : 0;
+    set_status(available ? fmt::format("A helper is running and can lend about {} MiB", (available > HELPER_HEADROOM ? available - HELPER_HEADROOM : 0) / MiB)
+                         : std::string("A helper started but didn't say how much it can lend"),
+        available == 0);
+    return available > HELPER_HEADROOM ? available - HELPER_HEADROOM : 0;
+}
+
+const char *v3k_ram_helpers_status(void) {
+    static thread_local std::string copy;
+    std::lock_guard lock(g_lock);
+    copy = g_status;
+    return copy.c_str();
+}
+
+uint64_t v3k_memory_footprint(void) {
+    task_vm_info_data_t info;
+    mach_msg_type_number_t count = TASK_VM_INFO_COUNT;
+    if (task_info(mach_task_self(), TASK_VM_INFO, reinterpret_cast<task_info_t>(&info), &count) != KERN_SUCCESS)
+        return 0;
+    return info.phys_footprint;
+}
+
+uint64_t v3k_memory_available(void) {
+    return os_proc_available_memory();
+}
+
+uint64_t v3k_memory_physical(void) {
+    return NSProcessInfo.processInfo.physicalMemory;
+}
+
+} // extern "C"

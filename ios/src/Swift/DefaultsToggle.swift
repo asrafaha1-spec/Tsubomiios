@@ -23,6 +23,7 @@ enum DefaultsKey: String {
     case soundEffects = "tsubomi.soundEffects"
     case liquidGlassInGame = "tsubomi.liquidGlassInGame"
     case keepCool = "v3k.keepCool"
+    case ramHelpers = "v3k.ramHelpers"
 
     /// Value used when the key has never been written.
     ///
@@ -40,6 +41,9 @@ enum DefaultsKey: String {
             return true
         case .compactList:
             // The roomier list is the default; compact is opt-in.
+            return false
+        case .ramHelpers:
+            // Experimental: opt in
             return false
         case .perfFPS, .perfFrametime, .perfFrametimeGraph, .perfRAM, .perfBattery, .perfLog:
             // The in-game overlay stays off until the user asks for a metric.

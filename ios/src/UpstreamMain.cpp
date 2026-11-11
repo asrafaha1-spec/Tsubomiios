@@ -44,6 +44,7 @@
 #include <emuenv/state.h>
 #include <io/state.h>
 #include <mem/functions.h>
+#include "ramhelper/ram_helpers.h"
 #include <dialog/state.h>
 #include <ime/functions.h>
 #include <mem/state.h>
@@ -2966,6 +2967,12 @@ int main(int argc, char *argv[]) {
     // region pool immediately while StikDebug is still attached. StikDebug
     // commonly detaches within a minute of app launch; new RWX regions cannot
     // be created after that, which used to make any delayed first boot fail.
+    // RAM helpers (off unless turned on in Settings): helper processes back part of the guest RAM
+    set_guest_backing_provider(v3k_ram_helpers_back);
+    if (v3k_ram_helpers_enabled())
+        LOG_INFO("RAM helpers: on, extension {}", v3k_ram_helpers_bundled() ? "bundled" : "NOT bundled");
+    v3k_ram_helpers_prepare();
+
     if (!prereserve_guest_memory()) {
         LOG_CRITICAL("Could not prereserve guest memory at startup; JIT pool prewarm deferred to first boot");
     } else if (initial_jit_available) {

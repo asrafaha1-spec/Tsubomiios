@@ -51,6 +51,7 @@ struct SettingsView: View {
                 if !model.isPerGame {
                     controlsSection
                     performanceOverlaySection
+                    ramHelpersSection
                     firmwareSection
                 }
                 if model.isPerGame {
@@ -245,6 +246,21 @@ struct SettingsView: View {
             Text("Performance overlay")
         } footer: {
             Text("Keep the phone cool: game threads stay on the fast cores without forcing top speed, and the renderer eases off while iOS reports the phone as hot. Off: maximum speed, more heat. Applies from the next game launch. The overlay appears in-game once any metric is enabled. The live log keeps the last ~250 lines, which is useful when reporting a bug.")
+        }
+    }
+
+    private var ramHelpersSection: some View {
+        Section {
+            DefaultsToggle("RAM helpers", key: .ramHelpers, onEnable: { v3k_ram_helpers_prepare() })
+            LabeledContent("Helper extension", value: v3k_ram_helpers_bundled() ? "Included" : "Missing")
+            LabeledContent("Helpers running", value: "\(v3k_ram_helpers_live())")
+            Text(String(cString: v3k_ram_helpers_status()))
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        } header: {
+            Text("RAM helpers (experimental)")
+        } footer: {
+            Text("Small helper processes, each with its own iOS memory limit, lend memory to the PS Vita's RAM so big games are less likely to be closed for memory. Off by default. Applies from the next game launch; the log says how much memory was lent. From Vita3KiOS.")
         }
     }
 

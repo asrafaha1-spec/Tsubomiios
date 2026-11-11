@@ -5,3 +5,4 @@
 // through the Objective-C facade in TsubomiBridge.h.
 
 #import "vita3k_ios/TsubomiBridge.h"
+#import "../../ramhelper/ram_helpers.h"
