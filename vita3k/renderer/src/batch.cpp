@@ -16,11 +16,11 @@
 // 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
 #include <renderer/commands.h>
-#include <util/thermal.h>
 #include <renderer/driver_functions.h>
 #include <renderer/functions.h>
 #include <renderer/state.h>
 #include <renderer/types.h>
+#include <util/thermal.h>
 
 #include <renderer/vulkan/types.h>
 

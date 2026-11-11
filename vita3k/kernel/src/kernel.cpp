@@ -21,8 +21,8 @@
 
 #include <cpu/common.h>
 #include <kernel/state.h>
-#include <util/thermal.h>
 #include <mem/functions.h>
+#include <util/thermal.h>
 
 #include <kernel/thread/thread_state.h>
 

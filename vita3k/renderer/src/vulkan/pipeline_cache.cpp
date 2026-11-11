@@ -33,9 +33,9 @@
 #include <SDL3/SDL_cpuinfo.h>
 
 #include <algorithm>
+#include <atomic>
 #include <mutex>
 #include <set>
-#include <atomic>
 #include <string_view>
 
 // don't use the dispatch version, because we always hash a small amount
@@ -524,7 +524,6 @@ vk::PipelineShaderStageCreateInfo PipelineCache::retrieve_shader(const SceGxmPro
     const std::string shader_version = fmt::format("vk{}", shader::CURRENT_VERSION);
 
     shader::usse::SpirvCode source = load_spirv_shader(*program, state.features, true, hints, maskupdate, state.shaders_path, state.shaders_log_path, shader_version, true);
-
 
     vk::ShaderModuleCreateInfo shader_info{
         .codeSize = sizeof(uint32_t) * source.size(),

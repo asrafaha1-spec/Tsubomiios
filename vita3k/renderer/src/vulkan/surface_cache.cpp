@@ -32,9 +32,9 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
-#include <set>
 #include <cstdint>
 #include <map>
+#include <set>
 
 extern "C" {
 #include <libswscale/swscale.h>
@@ -274,7 +274,6 @@ SurfaceRetrieveResult VKSurfaceCache::retrieve_color_surface_for_framebuffer(Mem
     else
         tiling = SurfaceTiling::Tiled;
 
-
     const bool is_srgb = color->gamma != 0;
     if (is_srgb) {
         if (vk_format == vk::Format::eR8G8B8A8Unorm) {
@@ -457,7 +456,6 @@ std::optional<TextureLookupResult> VKSurfaceCache::retrieve_color_surface_as_tex
 
     const vk::ComponentMapping swizzle = texture::translate_swizzle(gxm::get_format(texture));
     vk::Format vk_format = color::translate_format(base_format);
-
 
     const bool is_srgb = texture.gamma_mode != 0;
     if (is_srgb) {
@@ -1464,7 +1462,6 @@ void VKSurfaceCache::perform_post_surface_sync(const MemState &mem, ColorSurface
             return;
         const size_t byte_count = static_cast<size_t>(surface->stride_bytes) * surface->original_height;
         memcpy(pixels, surface->copy_buffer->mapped_data, byte_count);
-
 
         const bool is_swizzle_identity = surface->swizzle.r == vk::ComponentSwizzle::eR
             || !format_support_swizzle(surface->format);

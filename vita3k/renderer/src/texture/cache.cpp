@@ -337,7 +337,6 @@ void TextureCache::upload_texture(const SceGxmTexture &gxm_texture, MemState &me
     uint32_t width = gxm::get_width(gxm_texture);
     uint32_t height = gxm::get_height(gxm_texture);
 
-
     const Ptr<uint8_t> data(gxm_texture.data_addr << 2);
     uint8_t *texture_data = data.get(mem);
 
@@ -543,7 +542,6 @@ void TextureCache::upload_texture(const SceGxmTexture &gxm_texture, MemState &me
         default:
             break;
         }
-
 
         if (texture_type != SCE_GXM_TEXTURE_LINEAR && texture_type != SCE_GXM_TEXTURE_LINEAR_STRIDED && !gxm::is_pvrt_format(base_format)) {
             // Convert data to linear layout

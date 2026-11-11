@@ -493,7 +493,10 @@ static ExitCode load_app_impl(SceUID &main_module_id, EmuEnvState &emuenv, const
                         break;
                     }
                 }
-                if (match.empty()) { ok = false; break; }
+                if (match.empty()) {
+                    ok = false;
+                    break;
+                }
                 cur /= match;
             }
             if (ok) {
