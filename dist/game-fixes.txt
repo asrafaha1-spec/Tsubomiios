@@ -22,8 +22,8 @@ PCSF00024 surface-sync=on | Surface sync on: fixes the over-bright bloom
 PCSE00120 memory-mapping=off | GPU memory mapping off: removes the spikes in 3D scenes
 PCSB00245 memory-mapping=off | GPU memory mapping off: removes the spikes in 3D scenes
 
-# Madden NFL 13
-PCSE00084 memory-mapping=on native-buffer=on surface-sync=on high-accuracy=off async-shaders=on cpu-opt=on | Native buffer with surface sync; background shaders; high accuracy off
+# Madden NFL 13: surface sync off, it wrote picture data over game data and froze loading into a game
+PCSE00084 memory-mapping=on native-buffer=on surface-sync=off high-accuracy=off async-shaders=on cpu-opt=on | Native buffer, surface sync off (it froze loading into a game); background shaders; high accuracy off
 
 # Killzone Mercenary: same game ran at ~40 FPS with these settings and ~19 FPS with page-table mapping,
 # high accuracy and surface sync on (owner's logs)

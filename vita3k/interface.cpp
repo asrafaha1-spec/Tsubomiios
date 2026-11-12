@@ -256,14 +256,10 @@ static std::vector<std::string> get_archive_contents_path(const ZipPtr &zip) {
             continue;
 
         std::string m_filename = std::string(file_stat.m_filename);
-        if (m_filename.contains("sce_module/steroid.suprx")) {
-            LOG_CRITICAL("A Vitamin dump was detected, aborting installation...");
-#ifdef __ANDROID__
-            // SDL_ShowAndroidToast("Vitamin dumps are not supported!", 1, -1, 0, 0);
-#endif
-            content_path.clear();
-            break;
-        }
+        // Vitamin dumps are installed like any decrypted dump: the game runs without Vitamin's loader
+        // (module_parent.cpp skips it). A NoNpDrm dump is still more reliable
+        if (m_filename.contains("sce_module/steroid.suprx"))
+            LOG_WARN("Vitamin dump detected: installing it (its steroid.suprx loader won't be used)");
 
         const auto is_content = m_filename.contains(sfo_path) || m_filename.contains(theme_path);
         if (is_content) {
@@ -507,7 +503,30 @@ static ExitCode load_app_impl(SceUID &main_module_id, EmuEnvState &emuenv, const
         }
     }
 
-    main_module_id = load_module(emuenv, "app0:" + emuenv.self_path);
+    main_module_id = -1;
+    // Uncharted: Golden Abyss ships a launcher: its eboot.bin is a few kilobytes that start the game proper
+    // (uncharted.self) with sceAppMgrLoadExec. Loading the known target in the launcher's place starts the
+    // game the way it expects to start. If the target doesn't load, the launcher runs as before.
+    if (launch_request.self_path.empty() && emuenv.cfg.self_path.empty()) {
+        static constexpr const char *launcher_targets[] = { "uncharted.self" };
+        vfs::FileBuffer eboot;
+        if (vfs::read_app_file(eboot, emuenv.vita_fs_path, emuenv.io.app_path, EBOOT_PATH) && eboot.size() < 0x10000) {
+            for (const char *target : launcher_targets) {
+                vfs::FileBuffer probe;
+                if (!vfs::read_app_file(probe, emuenv.vita_fs_path, emuenv.io.app_path, target))
+                    continue;
+                LOG_INFO("eboot.bin is a launcher ({} bytes): starting {} directly", eboot.size(), target);
+                main_module_id = load_module(emuenv, std::string("app0:") + target);
+                if (main_module_id >= 0) {
+                    emuenv.self_path = target;
+                    break;
+                }
+                LOG_WARN("{} did not load: using the launcher", target);
+            }
+        }
+    }
+    if (main_module_id < 0)
+        main_module_id = load_module(emuenv, "app0:" + emuenv.self_path);
 
     if (main_module_id >= 0) {
         const auto module = emuenv.kernel.loaded_modules[main_module_id];

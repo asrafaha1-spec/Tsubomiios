@@ -239,7 +239,7 @@ static constexpr const char *DEFAULT_GAME_FIXES = R"(PCSA00011 surface-sync=on |
 PCSF00024 surface-sync=on | Surface sync on: fixes the over-bright bloom
 PCSE00120 memory-mapping=off | GPU memory mapping off: removes the spikes in 3D scenes
 PCSB00245 memory-mapping=off | GPU memory mapping off: removes the spikes in 3D scenes
-PCSE00084 memory-mapping=on native-buffer=on surface-sync=on high-accuracy=off async-shaders=on cpu-opt=on | Native buffer with surface sync; background shaders; high accuracy off
+PCSE00084 memory-mapping=on native-buffer=on surface-sync=off high-accuracy=off async-shaders=on cpu-opt=on | Native buffer, surface sync off (it froze loading into a game); background shaders; high accuracy off
 )";
 
 bool find_game_fix(const fs::path &file, const std::string &title_id, GameFix &fix) {

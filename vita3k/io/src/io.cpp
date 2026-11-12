@@ -37,6 +37,7 @@
 #endif
 
 #include <cassert>
+#include <cstring>
 #include <iostream>
 #include <iterator>
 #include <string>
@@ -351,7 +352,20 @@ fs::path expand_path(IOState &io, const char *path, const fs::path &vita_fs_path
     return device::construct_emulated_path(device, translated_path, vita_fs_path, io.redirect_stdio).string();
 }
 
+// A path without a device ("data_ngp/LocalCacheNGP/...", Killzone Mercenary) is relative to the process's
+// working directory, which is app0: for a game. Without this the open failed with ENOENT and the game went on
+// with what it never got, and crashed
+static const char *with_working_directory(const char *path, std::string &storage) {
+    if (!path || !*path || std::strchr(path, ':') || device::get_device(path) != VitaIoDevice::_INVALID)
+        return path;
+    storage = std::string("app0:") + (path[0] == '/' ? path + 1 : path);
+    LOG_WARN_ONCE("A path without a device was opened ({}): looking for it in app0:, the game's working directory", path);
+    return storage.c_str();
+}
+
 SceUID open_file(IOState &io, const char *path, const int flags, const fs::path &vita_fs_path, const char *export_name) {
+    std::string relative_storage;
+    path = with_working_directory(path, relative_storage);
     auto device = device::get_device(path);
     auto device_for_icase = device;
     if (device == VitaIoDevice::_INVALID) {
@@ -556,7 +570,9 @@ int stat_file(IOState &io, const char *file, SceIoStat *statp, const fs::path &v
     memset(statp, '\0', sizeof(SceIoStat));
 
     fs::path file_path = "";
+    std::string relative_storage;
     if (fd == invalid_fd) {
+        file = with_working_directory(file, relative_storage);
         auto device = device::get_device(file);
         auto device_for_icase = device;
         if (device == VitaIoDevice::_INVALID) {
@@ -744,6 +760,8 @@ int rename(IOState &io, const char *old_name, const char *new_name, const fs::pa
 }
 
 SceUID open_dir(IOState &io, const char *path, const fs::path &vita_fs_path, const char *export_name) {
+    std::string relative_storage;
+    path = with_working_directory(path, relative_storage);
     auto device = device::get_device(path);
     auto device_for_icase = device;
     const auto translated_path = translate_path(path, device, io.device_paths);

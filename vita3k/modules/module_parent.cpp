@@ -204,11 +204,17 @@ SceUID load_module(EmuEnvState &emuenv, const std::string &module_path) {
     }
 
     LOG_INFO("Loading module \"{}\"", module_path);
-    if (module_path.starts_with("vs0:sys/external/")) {
+    // Vitamin dumps carry Vitamin's own loader (steroid.suprx), which patches the system so a dumped game
+    // can run as homebrew on a real Vita. Vita3K runs the decrypted game directly and doesn't need it, so
+    // it is answered with an empty module like an HLE one.
+    const bool vitamin_loader = string_utils::tolower(module_path).ends_with("sce_module/steroid.suprx");
+    if (vitamin_loader)
+        LOG_WARN("Vitamin dump: not loading Vitamin's steroid.suprx (the game runs without it)");
+    if (vitamin_loader || module_path.starts_with("vs0:sys/external/")) {
         // check if module is LLEd or not
         // check only for this path because app modules are always LLEd and os0 modules can be loaded only by developer.
         const auto module_name = fs::path(module_path).stem().string();
-        if (!is_lle_module(module_name, emuenv)) {
+        if (vitamin_loader || !is_lle_module(module_name, emuenv)) {
             LOG_INFO("Module {} is HLE. Skipping load.", module_name);
             const SceKernelModulePtr kernelModuleInfo = std::make_shared<KernelModule>();
             memset(kernelModuleInfo.get(), 0, sizeof(KernelModule));
