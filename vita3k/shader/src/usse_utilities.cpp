@@ -625,7 +625,9 @@ spv::Id fetch_memory(spv::Builder &b, const SpirvShaderParameters &params, Spirv
 }
 
 static spv::Id make_or_get_buffer_ptr(spv::Builder &b, shader::usse::utils::SpirvUtilFunctions &utils, int nb_components, int stride = 16, bool is_write = false) {
-    const int buffer_utils_idx = (stride == 4) ? 0 : nb_components;
+    // [0]: 4-byte stride (byte loads); [n]: n components (16-byte stride for reads; for writes the
+    // packed n * 4 stride, see buffer_address_access)
+    const int buffer_utils_idx = (stride == 4 && !(is_write && nb_components == 1)) ? 0 : nb_components;
 
     if (utils.buffer_address_vec[buffer_utils_idx][is_write])
         return utils.buffer_address_vec[buffer_utils_idx][is_write];
@@ -692,7 +694,18 @@ void buffer_address_access(spv::Builder &b, const SpirvShaderParameters &params,
         }
 
         assert(nb_components < 4);
-        if (nb_components > 0) {
+        if (nb_components > 0 && is_buffer_store) {
+            // Store the last 1 to 3 components at their own address through a tightly packed array.
+            // A float/vec2/vec3 array with a 16-byte stride is padded to float4 in Metal, and
+            // SPIRV-Cross then writes through a "(thread float&)" cast of that float4, which Metal
+            // refuses to compile (J-STARS Victory VS+ lost those pipelines).
+            const spv::Id buffer_container = make_or_get_buffer_ptr(b, utils, nb_components, nb_components * 4, true);
+            const spv::Id tail_address = add_uvec2_uint(b, buffer_address, b.makeUintConstant(buffer_idx_vec4 * 16));
+            const spv::Id buffer_address_vec = b.createUnaryOp(spv::OpBitcast, buffer_container, tail_address);
+            const spv::Id accessed = utils::create_access_chain(b, spv::StorageClassPhysicalStorageBuffer, buffer_address_vec, { zero, zero });
+            spv::Id data = load(b, params, utils, features, dest, (1 << nb_components) - 1, dest_offset);
+            b.createStore(data, accessed, spv::MemoryAccessAlignedMask, spv::ScopeMax, 4);
+        } else if (nb_components > 0) {
             // do one last load for the at most 3 last components
             const spv::Id buffer_container = make_or_get_buffer_ptr(b, utils, nb_components, 16, is_buffer_store);
             const spv::Id buffer_address_vec = b.createUnaryOp(spv::OpBitcast, buffer_container, buffer_address);

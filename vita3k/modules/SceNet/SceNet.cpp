@@ -470,8 +470,10 @@ EXPORT(int, sceNetInetPton, int af, const char *src, void *dst) {
 
 EXPORT(int, sceNetInit, SceNetInitParam *param) {
     TRACY_FUNC(sceNetInit, param);
+    // Games that start networking twice (DBZ, LittleBigPlanet and others did, right at boot) were told
+    // EBUSY and some gave up on their whole network layer; the first init is still valid, so succeed
     if (emuenv.net.inited)
-        RET_NET_ERRNO(SCE_NET_ERROR_EBUSY);
+        return 0;
 
     if (!param || !param->memory.address() || param->size < 0x4000 || param->flags != 0)
         RET_NET_ERRNO(SCE_NET_ERROR_EINVAL);

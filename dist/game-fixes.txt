@@ -24,3 +24,7 @@ PCSB00245 memory-mapping=off | GPU memory mapping off: removes the spikes in 3D 
 
 # Madden NFL 13
 PCSE00084 memory-mapping=on native-buffer=on surface-sync=on high-accuracy=off async-shaders=on cpu-opt=on | Native buffer with surface sync; background shaders; high accuracy off
+
+# Killzone Mercenary: same game ran at ~40 FPS with these settings and ~19 FPS with page-table mapping,
+# high accuracy and surface sync on (owner's logs)
+PCSA00107 memory-mapping=on native-buffer=off surface-sync=off high-accuracy=off fps-hack=on cpu-opt=on | Double-buffer memory mapping with surface sync and high accuracy off: about twice the frame rate in testing

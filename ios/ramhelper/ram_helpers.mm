@@ -36,6 +36,7 @@ extern "C" void v3k_ram_helpers_log(bool warning, const char *message);
 #define RAM_LOG_WARN(...) v3k_ram_helpers_log(true, fmt::format(__VA_ARGS__).c_str())
 
 #include <algorithm>
+#include <cstring>
 #include <atomic>
 #include <memory>
 #include <mutex>
@@ -86,6 +87,9 @@ struct Helper {
     xpc_connection_t connection = nil;
     uint64_t remaining = 0; // what it can still lend
     bool budget_known = false;
+    int64_t pid = 0; // from its hello
+    uint64_t hello_available = 0;
+    int index = 0; // 1, 2, ... in the order they connected (for the log)
 };
 
 struct Backed {
@@ -94,6 +98,8 @@ struct Backed {
 };
 
 std::recursive_mutex g_lock;
+std::mutex g_start_lock; // one helper is started at a time (prepare and a boot can both ask)
+int g_helper_serial = 0;
 xpc_connection_t g_listener = nil;
 dispatch_semaphore_t g_connected = nil;
 NSMutableArray *g_extensions = nil; // NSExtension, one per helper process
@@ -115,6 +121,8 @@ void set_status(const std::string &status, bool error = false) {
     else
         RAM_LOG_INFO("{}", status);
 }
+
+int wanted_helpers();
 
 NSString *helper_identifier() {
     static NSString *identifier;
@@ -153,14 +161,30 @@ void ensure_listener() {
             return;
         xpc_connection_t connection = (xpc_connection_t)event;
         xpc_connection_set_event_handler(connection, ^(xpc_object_t message) {
-            if (xpc_get_type(message) == XPC_TYPE_ERROR)
+            if (xpc_get_type(message) == XPC_TYPE_ERROR) {
+                RAM_LOG_INFO("a helper's connection ended");
                 forget(connection);
+            } else if (xpc_get_type(message) == XPC_TYPE_DICTIONARY) {
+                const char *op = xpc_dictionary_get_string(message, V3K_RAM_KEY_OP);
+                if (op && strcmp(op, V3K_RAM_OP_HELLO) == 0) {
+                    std::lock_guard inner(g_lock);
+                    for (const auto &h : g_helpers) {
+                        if (h->connection == connection) {
+                            h->pid = xpc_dictionary_get_int64(message, "pid");
+                            h->hello_available = xpc_dictionary_get_uint64(message, V3K_RAM_KEY_AVAILABLE);
+                            RAM_LOG_INFO("helper {} says hello: process {}, {} MiB available to it", h->index, h->pid, h->hello_available / MiB);
+                        }
+                    }
+                }
+            }
         });
         xpc_connection_resume(connection);
         {
             std::lock_guard inner(g_lock);
             auto helper = std::make_shared<Helper>();
             helper->connection = connection;
+            helper->index = ++g_helper_serial;
+            RAM_LOG_INFO("helper {} connected", helper->index);
             g_helpers.push_back(helper);
         }
         dispatch_semaphore_signal(g_connected);
@@ -175,12 +199,17 @@ size_t live_count() {
 
 // Starts one more helper process and waits until it connects
 bool start_helper() {
+    std::lock_guard<std::mutex> start_guard(g_start_lock);
+    if (g_start_failed)
+        return false;
+    const double started_at = NSDate.timeIntervalSinceReferenceDate;
     NSString *identifier = helper_identifier();
     if (!identifier) {
         set_status("The RAM helper extension is not in this copy of the app (the signer may have removed it)", true);
         g_start_failed = true;
         return false;
     }
+    RAM_LOG_INFO("starting a RAM helper ({}{})", identifier.UTF8String, v3k_ram_helpers_in_livecontainer() ? ", inside LiveContainer" : "");
     ensure_listener();
 
     Class extension_class = NSClassFromString(@"NSExtension");
@@ -236,6 +265,7 @@ bool start_helper() {
     }
     std::lock_guard lock(g_lock);
     [g_extensions addObject:extension];
+    RAM_LOG_INFO("helper process started in {} ms ({} of {} wanted)", static_cast<int>((NSDate.timeIntervalSinceReferenceDate - started_at) * 1000), g_helpers.size(), wanted_helpers());
     return true;
 }
 
@@ -324,6 +354,24 @@ bool map_chunk(Helper &helper, mach_vm_address_t target, uint64_t length) {
         set_status(std::string("Lent memory could not be placed in the guest range: ") + mach_error_string(kr), true);
         return false;
     }
+    // Prove the lent memory works before the game relies on it: write and read back a pattern at both
+    // ends and the middle, through the guest address (the pattern is cleared again)
+    {
+        const uint64_t spots[] = { 0, length / 2 & ~(vm_page_size - 1), length - vm_page_size };
+        bool good = mprotect(reinterpret_cast<void *>(target), length, PROT_READ | PROT_WRITE) == 0;
+        for (size_t i = 0; good && i < 3; i++) {
+            auto *word = reinterpret_cast<volatile uint64_t *>(target + spots[i]);
+            const uint64_t pattern = 0x5633'4b52'414d'0000ull + i;
+            *word = pattern;
+            good = *word == pattern;
+            *word = 0;
+        }
+        if (!good) {
+            RAM_LOG_WARN("lent memory at {:#x} failed its write/read check", target);
+            set_status("The memory a RAM helper lent could not be used", true);
+            return false;
+        }
+    }
     // The guest allocator expects untouched pages to be inaccessible until it hands them out
     if (mprotect(reinterpret_cast<void *>(target), length, PROT_NONE) != 0) {
         set_status("Lent memory could not be protected", true);
@@ -332,6 +380,7 @@ bool map_chunk(Helper &helper, mach_vm_address_t target, uint64_t length) {
     std::lock_guard lock(g_lock);
     [g_shmems addObject:shmem];
     helper.remaining -= length;
+    RAM_LOG_INFO("helper {} lent {} MiB at {:#x} (checked; it can lend {} MiB more)", helper.index, length / MiB, target, helper.remaining / MiB);
     return true;
 }
 
@@ -410,6 +459,7 @@ uint64_t v3k_ram_helpers_back(void *host, uint64_t size, bool last) {
     }
 
     const mach_vm_address_t base = reinterpret_cast<mach_vm_address_t>(host);
+    RAM_LOG_INFO("guest range {:#x}, {} MiB offered to the helpers{}", base, size / MiB, last ? " (last range)" : "");
     uint64_t offset = 0;
     while (offset < size) {
         const uint64_t length = std::min<uint64_t>(V3K_RAM_HELPER_CHUNK, size - offset);
@@ -422,6 +472,8 @@ uint64_t v3k_ram_helpers_back(void *host, uint64_t size, bool last) {
         std::lock_guard lock(g_lock);
         g_backed.push_back({ base, offset });
     }
+    if (offset < size)
+        RAM_LOG_WARN("range {:#x}: {} of {} MiB backed by helpers, the rest stays in this app's own memory", base, offset / MiB, size / MiB);
 
     if (last) {
         g_new_boot = true;
@@ -433,6 +485,7 @@ uint64_t v3k_ram_helpers_back(void *host, uint64_t size, bool last) {
         }
         const size_t helpers = live_count();
         end_helpers();
+        RAM_LOG_INFO("this app: {} MiB footprint, {} MiB still available to it (the lent memory is not counted here)", v3k_memory_footprint() / MiB, v3k_memory_available() / MiB);
         if (total)
             set_status(fmt::format("{} MiB of the PS Vita's memory lent by {} helper process{}", total / MiB, helpers, helpers == 1 ? "" : "es"));
         else if (!g_start_failed)

@@ -169,6 +169,8 @@ __attribute__((constructor)) static void v3k_allow_endpoint_decoding() {
 
     xpc_object_t hello = xpc_dictionary_create(NULL, NULL, 0);
     xpc_dictionary_set_string(hello, V3K_RAM_KEY_OP, V3K_RAM_OP_HELLO);
+    xpc_dictionary_set_int64(hello, "pid", getpid());
+    xpc_dictionary_set_uint64(hello, V3K_RAM_KEY_AVAILABLE, static_cast<uint64_t>(os_proc_available_memory()));
     xpc_connection_send_message(channel, hello);
     NSLog(@"V3KRamHelper: ready, pid %d, %llu MiB available", getpid(), static_cast<unsigned long long>(os_proc_available_memory() >> 20));
 }

@@ -252,6 +252,8 @@ void PipelineCache::init(bool support_rasterized_order_access) {
     nb_worker_threads = std::max(nb_worker_threads, 4);
 #endif
 
+    abandon_compiles.store(false, std::memory_order_release);
+
     if (use_async_compilation) {
         // we could not initialize the worker threads previously
         use_async_compilation = false;
@@ -388,7 +390,8 @@ void PipelineCache::save_pipeline_cache() {
 }
 
 void PipelineCache::cleanup() {
-    // stop threads
+    // stop threads, dropping whatever pipelines are still waiting to be compiled
+    abandon_compiles.store(true, std::memory_order_release);
     if (use_async_compilation)
         set_async_compilation(false);
 
@@ -810,6 +813,17 @@ void PipelineCache::compiler_thread(MemState &mem) {
         if (request == nullptr)
             // use this as an instruction to stop the thread
             break;
+
+        if (abandon_compiles.load(std::memory_order_acquire)) {
+            // The game is being closed: the backlog is not worth compiling. The pipeline is marked as
+            // failed and freed with the rest.
+            *request->pipeline = std::bit_cast<vk::Pipeline, uint64_t>(~1ULL);
+            request->vertex_program_gxm->compile_threads_on.fetch_sub(1, std::memory_order_release);
+            request->fragment_program_gxm->compile_threads_on.fetch_sub(1, std::memory_order_release);
+            delete request;
+            continue;
+        }
+
 #if defined(VITA3K_PLATFORM_IOS)
         thermal::follow_worker_qos(thermal_qos);
 #endif

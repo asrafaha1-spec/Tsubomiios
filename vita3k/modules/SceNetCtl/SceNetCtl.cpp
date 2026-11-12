@@ -726,8 +726,9 @@ EXPORT(int, sceNetCtlInetUnregisterCallback, int cid) {
 
 EXPORT(int, sceNetCtlInit) {
     TRACY_FUNC(sceNetCtlInit);
+    // Same as sceNetInit: a second init from the game's own network layer is not an error worth failing on
     if (emuenv.netctl.inited) {
-        return RET_ERROR(SCE_NET_CTL_ERROR_NOT_TERMINATED);
+        return 0;
     }
 
     const std::lock_guard<std::mutex> lock(emuenv.netctl.mutex);

@@ -97,6 +97,8 @@ private:
     // queue containing request sent by the main thread to the compile threads
     PipelineCompileQueue pipeline_compile_queue;
     moodycamel::ProducerToken pipeline_compile_queue_token;
+    // set when the cache is torn down: workers drop the pipelines still queued instead of compiling them
+    std::atomic<bool> abandon_compiles{ false };
     std::vector<std::thread> worker_threads;
 
     // each pipeline compiler thread uses this function as its entrypoint
