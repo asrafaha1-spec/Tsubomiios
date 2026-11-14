@@ -79,7 +79,7 @@ struct AppearanceSection: View {
                         Text(theme.name).tag(theme.id)
                     }
                 }
-                .onChange(of: vitaTheme) { _, _ in MenuMusic.shared.settingsChanged() }
+                .onChangeCompat(of: vitaTheme) { _, _ in MenuMusic.shared.settingsChanged() }
                 Text("Themes installed in Hinoki (ux0/theme) show up here, with their wallpapers.")
                     .font(.caption).foregroundStyle(.secondary)
             }
@@ -165,10 +165,10 @@ struct MusicSection: View {
         } footer: {
             Text("Original songs composed on your device, a new one every time. Music stops when a game starts and stays quiet while another app is playing audio.")
         }
-        .onChange(of: musicEnabled) { _, _ in MenuMusic.shared.settingsChanged() }
-        .onChange(of: musicVolume) { _, _ in MenuMusic.shared.settingsChanged() }
-        .onChange(of: vitaMusic) { _, _ in MenuMusic.shared.settingsChanged() }
-        .onChange(of: musicStyle) { _, _ in
+        .onChangeCompat(of: musicEnabled) { _, _ in MenuMusic.shared.settingsChanged() }
+        .onChangeCompat(of: musicVolume) { _, _ in MenuMusic.shared.settingsChanged() }
+        .onChangeCompat(of: vitaMusic) { _, _ in MenuMusic.shared.settingsChanged() }
+        .onChangeCompat(of: musicStyle) { _, _ in
             MenuMusic.shared.settingsChanged()
             MenuMusic.shared.skip()
         }
@@ -566,7 +566,7 @@ struct MemorySection: View {
             Toggle(isOn: $ramHelpers) {
                 Label("RAM helpers (beta)", systemImage: "memorychip")
             }
-            .onChange(of: ramHelpers) { _, on in
+            .onChangeCompat(of: ramHelpers) { _, on in
                 if on { v3k_ram_helpers_prepare() }
             }
             if ramHelpers {

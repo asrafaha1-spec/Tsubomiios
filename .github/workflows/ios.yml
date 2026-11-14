@@ -128,6 +128,24 @@ jobs:
           bash ./.ci/build-ios.sh artifacts
           ccache -s
 
+      # TrollStore keeps the entitlements embedded in the binary, and an unsigned Xcode build has none.
+      # Embed them with ldid so the app gets its memory limit and can be attached to for JIT.
+      - name: Embed entitlements for TrollStore
+        run: |
+          brew install ldid
+          work="$RUNNER_TEMP/trollstore-ipa"
+          ipa="$(cd "$(dirname "$IPA_PATH")" && pwd)/$(basename "$IPA_PATH")"
+          echo "IPA: $ipa"; ls -la "$ipa"
+          rm -rf "$work" && mkdir -p "$work"
+          unzip -q "$ipa" -d "$work"
+          app="$(find "$work/Payload" -maxdepth 1 -name '*.app' | head -n 1)"
+          exe="$app/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Info.plist")"
+          ldid -S"$GITHUB_WORKSPACE/vita3k/ios/Vita3K.entitlements" "$exe"
+          echo "Embedded entitlements:"; ldid -e "$exe"
+          rm -f "$ipa"
+          (cd "$work" && /usr/bin/zip -qry "$ipa" Payload)
+          /usr/bin/unzip -tq "$ipa"
+
       - name: Upload IPA
         uses: actions/upload-artifact@v7
         with:

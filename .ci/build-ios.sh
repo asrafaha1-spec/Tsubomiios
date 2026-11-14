@@ -110,7 +110,7 @@ pb=/usr/libexec/PlistBuddy
 if xcrun actool "$repo_root/dist/image/Hinoki.icon" \
         --compile "$app_path" \
         --platform iphoneos \
-        --minimum-deployment-target 17.4 \
+        --minimum-deployment-target 16.3 \
         --target-device iphone --target-device ipad \
         --app-icon Hinoki \
         --output-partial-info-plist "$icon_work/partial.plist" > "$icon_work/actool.log" 2>&1; then

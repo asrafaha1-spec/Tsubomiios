@@ -207,7 +207,7 @@ struct LibraryView: View {
             .sheet(item: $model.crashReport) { report in
                 CrashReportView(report: report)
             }
-            .onChange(of: model.launchRequested) { _, app in
+            .onChangeCompat(of: model.launchRequested) { _, app in
                 guard let app else { return }
                 model.launchRequested = nil
                 // Let the sheet finish closing first
@@ -217,7 +217,7 @@ struct LibraryView: View {
                 model.checkForCrashReport()
                 LibraryHost.updateOrientation()
             }
-            .onChange(of: vitaHome) { _, _ in LibraryHost.updateOrientation() }
+            .onChangeCompat(of: vitaHome) { _, _ in LibraryHost.updateOrientation() }
             .alert(model.jitPreparing ? "JIT is almost ready" : "JIT is not ready", isPresented: Binding(get: { pendingLaunch != nil }, set: { if !$0 { pendingLaunch = nil } })) {
                 if !model.jitPreparing {
                     EnableJITButtons()

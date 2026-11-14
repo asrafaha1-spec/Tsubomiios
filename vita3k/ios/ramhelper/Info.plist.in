@@ -31,7 +31,7 @@
 		<string>_remotepairing._tcp</string>
 	</array>
 	<key>MinimumOSVersion</key>
-	<string>17.4</string>
+	<string>16.3</string>
 	<key>NSExtension</key>
 	<dict>
 		<key>NSExtensionAttributes</key>

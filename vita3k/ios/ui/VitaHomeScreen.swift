@@ -357,7 +357,7 @@ struct VitaHomeView: View {
         .sheet(item: $infoApp) { app in GameInfoView(app: app) }
         .onAppear(perform: applyPreview)
         // Deleting games can leave fewer pages than the one being shown
-        .onChange(of: pages.count) { _, count in
+        .onChangeCompat(of: pages.count) { _, count in
             if page >= count { page = max(count - 1, 0) }
         }
     }
@@ -372,11 +372,10 @@ struct VitaHomeView: View {
                         .id(index)
                 }
             }
-            .scrollTargetLayout()
+            .scrollTargetLayoutCompat()
         }
-        .scrollTargetBehavior(.paging)
+        .homePagingCompat(page: $page)
         .scrollIndicators(.hidden)
-        .scrollPosition(id: Binding<Int?>(get: { page }, set: { page = $0 ?? 0 }))
         .animation(.easeOut(duration: 0.25), value: page)
     }
 
@@ -810,7 +809,7 @@ private struct VitaBubbleButtonStyle: ButtonStyle {
             .brightness(configuration.isPressed ? 0.06 : 0)
             .shadow(color: .white.opacity(configuration.isPressed ? 0.55 : 0), radius: configuration.isPressed ? 14 : 0)
             .animation(configuration.isPressed ? .easeOut(duration: 0.12) : .spring(response: 0.36, dampingFraction: 0.45), value: configuration.isPressed)
-            .onChange(of: configuration.isPressed) { _, pressed in
+            .onChangeCompat(of: configuration.isPressed) { _, pressed in
                 if pressed { UIImpactFeedbackGenerator(style: .soft).impactOccurred(intensity: 0.8) }
             }
     }
@@ -981,7 +980,7 @@ private struct VitaBarButtonStyle: ButtonStyle {
             .background(Capsule().fill(.white.opacity(configuration.isPressed ? 0.3 : 0)))
             .scaleEffect(configuration.isPressed ? 0.9 : 1)
             .animation(.spring(response: 0.22, dampingFraction: 0.55), value: configuration.isPressed)
-            .onChange(of: configuration.isPressed) { _, pressed in
+            .onChangeCompat(of: configuration.isPressed) { _, pressed in
                 if pressed { UIImpactFeedbackGenerator(style: .light).impactOccurred(intensity: 0.7) }
             }
     }

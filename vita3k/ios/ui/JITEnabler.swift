@@ -635,7 +635,7 @@ struct BuiltinJITSection: View {
                 hasPairing = BuiltinJIT.hasPairingFile
             }
         }
-        .onChange(of: jit.busy) { _, busy in
+        .onChangeCompat(of: jit.busy) { _, busy in
             if !busy { model.reload() }
         }
     }

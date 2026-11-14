@@ -314,6 +314,23 @@ int main(int argc, char *argv[]) {
                     stall_logged = true;
                     stalls++;
                     record_status(-1.0);
+                    // Where every guest thread is, to tell what the game is waiting for
+                    std::vector<ThreadStatePtr> frozen_threads;
+                    {
+                        const std::lock_guard<std::mutex> kernel_lock(emuenv->kernel.mutex);
+                        for (const auto &entry : emuenv->kernel.threads)
+                            frozen_threads.push_back(entry.second);
+                    }
+                    for (const ThreadStatePtr &frozen : frozen_threads)
+                        LOG_INFO("Frozen game thread {}", frozen->diagnostic_line());
+                    // Who holds each locked mutex (owner #id matches the thread list above)
+                    const auto log_mutex = [](Mutex &mutex) {
+                        const std::string line = mutex.diagnostic_line();
+                        if (!line.empty())
+                            LOG_INFO("Frozen game: held {}", line);
+                    };
+                    emuenv->kernel.objects.for_each<LwMutex>(log_mutex);
+                    emuenv->kernel.objects.for_each<HeavyMutex>(log_mutex);
                 }
                 if (ios::memory_warning_count() != memory_warnings) {
                     LOG_WARN("Watchdog: iOS warned that memory is low, {} MiB left", os_proc_available_memory() / (1024 * 1024));

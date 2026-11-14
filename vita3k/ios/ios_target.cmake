@@ -7,6 +7,7 @@ set(VITA3K_IOS_SWIFT_SOURCES
 	ios/ui/LibraryHost.swift
 	ios/ui/JITEnabler.swift
 	ios/ui/HinokiBrand.swift
+	ios/ui/IOS16Compat.swift
 	ios/ui/LibraryModel.swift
 	ios/ui/LibraryView.swift
 	ios/ui/SettingsView.swift
@@ -33,6 +34,7 @@ add_executable(vita3k MACOSX_BUNDLE
 	ios/ios_session.h
 	ios/controls/virtual_pad.cpp
 	ios/controls/virtual_pad.h
+	ios/LibcxxCompat.cpp
 	ios/jit/ios_jit.cpp
 	ios/jit/ios_jit.h
 	ios/ramhelper/ram_helpers.mm
@@ -72,6 +74,6 @@ set_target_properties(vita3k PROPERTIES
 	Swift_LANGUAGE_VERSION 5
 	XCODE_ATTRIBUTE_SWIFT_VERSION "5.0"
 	XCODE_ATTRIBUTE_SWIFT_OBJC_BRIDGING_HEADER "${CMAKE_CURRENT_SOURCE_DIR}/ios/ui/Vita3K-Bridging-Header.h"
-	XCODE_ATTRIBUTE_IPHONEOS_DEPLOYMENT_TARGET "17.4"
+	XCODE_ATTRIBUTE_IPHONEOS_DEPLOYMENT_TARGET "16.3"
 )
 
