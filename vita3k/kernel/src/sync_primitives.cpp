@@ -685,6 +685,13 @@ void Mutex::release_ended_owner(const ThreadState &thread) {
     serve();
 }
 
+std::string Mutex::diagnostic_line() {
+    const auto guard = lock();
+    if (!guard || !owner)
+        return {};
+    return fmt::format("{} #{} \"{}\" owner=#{} lock_count={}", lightweight() ? "LwMutex" : "Mutex", uid, name, owner, lock_count);
+}
+
 void Mutex::serve() {
     if (owner)
         return;

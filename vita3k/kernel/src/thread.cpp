@@ -28,6 +28,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <chrono>
 #include <cstring>
 #include <memory>
 #include <utility>
@@ -86,6 +87,21 @@ ThreadState::ThreadState(SceUID id, KernelState &kernel, MemState &mem, CPUState
     tls_slot(TLS_STACK_CHECK_GUARD) = static_cast<int>(0xC325C2A7);
     tls_slot(TLS_CURRENT_PRIORITY) = priority;
     tls_slot(TLS_CPU_AFFINITY_MASK) = affinity_mask;
+
+#if defined(VITA3K_PLATFORM_IOS)
+    // Sony's SceLibFios2 worker threads (SceFiosIO, SceFiosCallback, ...) are all pinned to the same core
+    // at the same priority and rely on never running in parallel: they take SceFiosChunk and
+    // SceFiosScheduler in opposite orders and deadlock at boot when they do (God of War Collection).
+    // Threads of that library take turns on their core, as they do on hardware.
+    {
+        const bool single_core = (affinity_mask & SCE_KERNEL_CPU_MASK_USER_ALL) == affinity_mask
+            && affinity_mask != 0 && (affinity_mask & (affinity_mask - 1)) == 0;
+        if (single_core && this->name.rfind("SceFios", 0) == 0) {
+            core_token = kernel.get_core_token(affinity_mask);
+            LOG_INFO("Thread {} (#{}) is serialized on core mask {}", this->name, id, log_hex(static_cast<uint32_t>(affinity_mask)));
+        }
+    }
+#endif
 
     const Ptr<uint8_t> user_tls_ptr = tls.get_ptr<uint8_t>() + KERNEL_TLS_SIZE;
     write_tpidruro(*this->cpu, user_tls_ptr.address());
@@ -264,6 +280,8 @@ std::optional<uint32_t> ThreadState::run_guest(std::unique_lock<std::mutex> &loc
 
             const bool stepped = std::exchange(step_requested, false);
             lock.unlock();
+            // Take turns with the other threads pinned to our core (no lock is held here)
+            acquire_core();
             const CPUStop stop = stepped ? ::step(*cpu) : ::run(*cpu);
             after_kernel_call = stop.kernel_call;
             if (stop.kernel_call) {
@@ -350,8 +368,35 @@ uint32_t ThreadState::run_guest_function(SceSize args, const Ptr<void> argp) {
     return returned_value;
 }
 
+void ThreadState::acquire_core() {
+    if (!core_token || core_token_held.load(std::memory_order_acquire))
+        return;
+    // Bounded wait: if a holder never gives the core back (blocked in a call that does not go through
+    // update_status), run anyway rather than turning this safety net into a new hang.
+    if (core_token->mutex.try_lock_for(std::chrono::milliseconds(100))) {
+        core_token_owner.store(std::this_thread::get_id(), std::memory_order_relaxed);
+        core_token_held.store(true, std::memory_order_release);
+    } else {
+        static std::atomic<int> warn_count{ 0 };
+        if (warn_count.fetch_add(1) < 5)
+            LOG_WARN("Thread {} (#{}) could not get its core within 100 ms, running unserialized", name, id);
+    }
+}
+
+void ThreadState::release_core() {
+    if (!core_token_held.load(std::memory_order_acquire))
+        return;
+    if (core_token_owner.load(std::memory_order_relaxed) != std::this_thread::get_id())
+        return;
+    core_token_held.store(false, std::memory_order_release);
+    core_token->mutex.unlock();
+}
+
 void ThreadState::update_status(ThreadStatus status) {
     this->status = status;
+    // A thread that stops running (wait, suspend, exit) gives its core to the next one
+    if (status != ThreadStatus::running)
+        release_core();
     cv.notify_all();
 
     if (status == ThreadStatus::dormant || status == ThreadStatus::deleted) {
@@ -577,6 +622,15 @@ SceKernelThreadInfo ThreadState::info() {
     info.exitStatus = returned_value;
     info.fNotifyCallback = callbacks_notified() ? 1 : 0;
     return info;
+}
+
+std::string ThreadState::diagnostic_line() {
+    const SceKernelThreadInfo thread_info = info();
+    // Reading the registers of a thread that runs is racy, but this is only for a frozen game
+    return fmt::format("#{} {} status={} waitType={} waitId={} prio={} affinity={} pc={} lr={} sp={}", id, name,
+        thread_info.status, log_hex(thread_info.waitType), log_hex(static_cast<uint32_t>(thread_info.waitId)),
+        thread_info.currentPriority, log_hex(static_cast<uint32_t>(thread_info.currentCpuAffinityMask)),
+        log_hex(read_pc(*cpu)), log_hex(read_lr(*cpu)), log_hex(read_sp(*cpu)));
 }
 
 int ThreadState::get_priority() const {

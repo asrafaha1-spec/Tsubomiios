@@ -67,9 +67,47 @@ constexpr bool log_file_stat = false;
 
 namespace vfs {
 
+// The Vita filesystem is case-insensitive, the host one may not be (a game asking for
+// "app0:GOW1.self" while the dump contains "gow1.self"). Walk the path one component at a
+// time and fix up the case of the components that do not exist as written.
+static bool resolve_path_case_insensitive(const fs::path &path, fs::path &resolved) {
+    fs::path current = path.root_path();
+    for (const auto &component : path.relative_path()) {
+        fs::path candidate = current / component;
+        std::error_code ec;
+        if (fs::exists(candidate, ec)) {
+            current = std::move(candidate);
+            continue;
+        }
+
+        const std::string wanted = string_utils::tolower(component.string());
+        bool found = false;
+        for (fs::directory_iterator it(current, ec), end; !ec && it != end; it.increment(ec)) {
+            if (string_utils::tolower(it->path().filename().string()) == wanted) {
+                current = it->path();
+                found = true;
+                break;
+            }
+        }
+        if (!found)
+            return false;
+    }
+
+    resolved = std::move(current);
+    return true;
+}
+
 bool read_file(const VitaIoDevice device, FileBuffer &buf, const fs::path &vita_fs_path, const fs::path &vfs_file_path) {
     const auto host_file_path = device::construct_emulated_path(device, vfs_file_path, vita_fs_path);
-    return fs_utils::read_data(host_file_path, buf);
+    if (fs_utils::read_data(host_file_path, buf))
+        return true;
+
+    fs::path resolved_path;
+    if (resolve_path_case_insensitive(host_file_path, resolved_path) && resolved_path != host_file_path) {
+        LOG_INFO("read_file: \"{}\" not found as written, using \"{}\"", host_file_path.string(), resolved_path.string());
+        return fs_utils::read_data(resolved_path, buf);
+    }
+    return false;
 }
 
 bool read_app_file(FileBuffer &buf, const fs::path &vita_fs_path, const std::string &app_path, const fs::path &vfs_file_path) {
