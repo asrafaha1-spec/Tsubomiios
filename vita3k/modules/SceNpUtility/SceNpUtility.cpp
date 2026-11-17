@@ -65,6 +65,13 @@ EXPORT(int, sceNpLookupInit) {
     return UNIMPLEMENTED();
 }
 
+// Not in any public NID list. FREEDOM WARS (PCSA00147) calls it from a worker thread right after sceNpLookupInit.
+// Without an export the call ended the thread while it held the game's job locks and the game froze at boot.
+// Answering success lets the game go on as if the (online) service were fine.
+EXPORT(int, SceNpUtility_D141C076) {
+    return STUBBED("returns success (unknown function)");
+}
+
 EXPORT(int, sceNpLookupNpId) {
     return UNIMPLEMENTED();
 }
