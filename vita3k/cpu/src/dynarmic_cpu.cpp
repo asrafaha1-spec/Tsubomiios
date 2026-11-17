@@ -494,6 +494,11 @@ public:
         if (cpu->log_mem)
             LOG_TRACE("Instruction fetch at address 0x{:X}", addr);
         if (addr < KiB(4)) {
+            // A call through an empty function pointer (the game expected a function that isn't there):
+            // say once where it came from. FREEDOM WARS froze its job workers this way
+            static std::atomic_flag reported_null = ATOMIC_FLAG_INIT;
+            if (!reported_null.test_and_set())
+                report_wild_jump(addr);
             report_trace(fmt::format("jump to 0x{:08X}", addr).c_str());
             return std::nullopt;
         }
